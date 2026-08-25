@@ -1,0 +1,44 @@
+#version 450
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, std430) readonly buffer InputBuffer {
+  uvec4 values[];
+} input_buffer;
+
+layout(set = 0, binding = 1, std430) writeonly buffer OutputBuffer {
+  uvec4 values[];
+} output_buffer;
+
+layout(push_constant) uniform Parameters {
+  uint output_offset;
+  uint reserved;
+} parameters;
+
+void main() {
+  const uint index = gl_GlobalInvocationID.x;
+  const uvec4 seed = input_buffer.values[index];
+  uvec4 a0 = seed + uvec4(0x9E3779B9u);
+  uvec4 a1 = seed ^ uvec4(0x85EBCA6Bu);
+  uvec4 a2 = seed + uvec4(0xC2B2AE35u);
+  uvec4 a3 = seed ^ uvec4(0x27D4EB2Fu);
+  uvec4 a4 = seed + uvec4(0x165667B1u);
+  uvec4 a5 = seed ^ uvec4(0xD3A2646Cu);
+  uvec4 a6 = seed + uvec4(0xFD7046C5u);
+  uvec4 a7 = seed ^ uvec4(0xB55A4F09u);
+
+  // 88 scalar integer operations per iteration, 5632 per invocation.
+  for (uint iteration = 0; iteration < 64; ++iteration) {
+    a0 = a0 * uvec4(1664525u) + a4;
+    a1 = (a1 ^ a5) + (a0 >> uvec4(5u));
+    a2 = (a2 & a6) | (a1 << uvec4(7u));
+    a3 = (a3 + a7) ^ (a2 >> uvec4(3u));
+    a4 = (a4 * uvec4(22695477u)) ^ a0;
+    a5 = (a5 + a1) | (a4 >> uvec4(11u));
+    a6 = (a6 ^ a2) + (a5 << uvec4(9u));
+    a7 = (a7 + a3) ^ (a6 >> uvec4(13u));
+  }
+
+  output_buffer.values[index] =
+      (a0 ^ a1) + (a2 ^ a3) + (a4 ^ a5) + (a6 ^ a7);
+}

@@ -1,0 +1,45 @@
+#version 450
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, std430) readonly buffer InputBuffer {
+  vec4 values[];
+} input_buffer;
+
+layout(set = 0, binding = 1, std430) writeonly buffer OutputBuffer {
+  vec4 values[];
+} output_buffer;
+
+layout(push_constant) uniform Parameters {
+  uint output_offset;
+  uint reserved;
+} parameters;
+
+void main() {
+  const uint index = gl_GlobalInvocationID.x;
+  const vec4 seed = input_buffer.values[index];
+  vec4 a0 = seed + vec4(0.101, 0.103, 0.107, 0.109);
+  vec4 a1 = seed + vec4(0.113, 0.127, 0.131, 0.137);
+  vec4 a2 = seed + vec4(0.139, 0.149, 0.151, 0.157);
+  vec4 a3 = seed + vec4(0.163, 0.167, 0.173, 0.179);
+  vec4 a4 = seed + vec4(0.181, 0.191, 0.193, 0.197);
+  vec4 a5 = seed + vec4(0.199, 0.211, 0.223, 0.227);
+  vec4 a6 = seed + vec4(0.229, 0.233, 0.239, 0.241);
+  vec4 a7 = seed + vec4(0.251, 0.257, 0.263, 0.269);
+  const vec4 multiplier = vec4(0.0009765625);
+
+  // 8 vec4 FMAs x 4 lanes x 2 FLOPs x 64 iterations = 4096 FLOPs.
+  for (uint iteration = 0; iteration < 64; ++iteration) {
+    a0 = fma(a0, multiplier, a4);
+    a1 = fma(a1, multiplier, a5);
+    a2 = fma(a2, multiplier, a6);
+    a3 = fma(a3, multiplier, a7);
+    a4 = fma(a4, multiplier, a1);
+    a5 = fma(a5, multiplier, a2);
+    a6 = fma(a6, multiplier, a3);
+    a7 = fma(a7, multiplier, a0);
+  }
+
+  output_buffer.values[index] =
+      (a0 + a1) + (a2 + a3) + (a4 + a5) + (a6 + a7);
+}

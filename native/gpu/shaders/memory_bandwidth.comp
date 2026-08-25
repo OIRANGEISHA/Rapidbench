@@ -1,0 +1,30 @@
+#version 450
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, std430) readonly buffer InputBuffer {
+  vec4 values[];
+} input_buffer;
+
+layout(set = 0, binding = 1, std430) writeonly buffer OutputBuffer {
+  float values[];
+} output_buffer;
+
+layout(push_constant) uniform Parameters {
+  uint element_count;
+  uint element_offset;
+} parameters;
+
+void main() {
+  const uint index = gl_GlobalInvocationID.x;
+  uint base = index * 16u + parameters.element_offset;
+  if (base >= parameters.element_count) {
+    base -= parameters.element_count;
+  }
+  vec4 sum = vec4(0.0);
+  // 16 coalesced vec4 loads = exactly 256 bytes read per invocation.
+  for (uint item = 0; item < 16u; ++item) {
+    sum += input_buffer.values[base + item];
+  }
+  output_buffer.values[index] = dot(sum, vec4(0.25));
+}

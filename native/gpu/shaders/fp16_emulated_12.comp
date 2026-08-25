@@ -1,0 +1,54 @@
+#version 450
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, std430) readonly buffer InputBuffer {
+  vec4 values[];
+} input_buffer;
+
+layout(set = 0, binding = 1, std430) writeonly buffer OutputBuffer {
+  vec4 values[];
+} output_buffer;
+
+layout(push_constant) uniform Parameters {
+  uint output_offset;
+  uint reserved;
+} parameters;
+
+void main() {
+  const uint index = gl_GlobalInvocationID.x;
+  const vec4 seed = input_buffer.values[index];
+  vec4 a0 = seed + vec4(0.101);
+  vec4 a1 = seed + vec4(0.113);
+  vec4 a2 = seed + vec4(0.139);
+  vec4 a3 = seed + vec4(0.163);
+  vec4 a4 = seed + vec4(0.181);
+  vec4 a5 = seed + vec4(0.199);
+  vec4 a6 = seed + vec4(0.229);
+  vec4 a7 = seed + vec4(0.251);
+  vec4 a8 = seed + vec4(0.277);
+  vec4 a9 = seed + vec4(0.293);
+  vec4 a10 = seed + vec4(0.317);
+  vec4 a11 = seed + vec4(0.347);
+  const vec4 multiplier = vec4(0.9990234375);
+
+  // FP32 fallback with the same structure and operation count as native FP16.
+  for (uint iteration = 0; iteration < 64; ++iteration) {
+    a0 = fma(a0, multiplier, vec4(0.0009765625));
+    a1 = fma(a1, multiplier, vec4(0.001953125));
+    a2 = fma(a2, multiplier, vec4(0.0029296875));
+    a3 = fma(a3, multiplier, vec4(0.00390625));
+    a4 = fma(a4, multiplier, vec4(0.0048828125));
+    a5 = fma(a5, multiplier, vec4(0.005859375));
+    a6 = fma(a6, multiplier, vec4(0.0068359375));
+    a7 = fma(a7, multiplier, vec4(0.0078125));
+    a8 = fma(a8, multiplier, vec4(0.0087890625));
+    a9 = fma(a9, multiplier, vec4(0.009765625));
+    a10 = fma(a10, multiplier, vec4(0.0107421875));
+    a11 = fma(a11, multiplier, vec4(0.01171875));
+  }
+
+  output_buffer.values[parameters.output_offset + index] =
+      ((a0 + a1) + (a2 + a3)) + ((a4 + a5) + (a6 + a7)) +
+      ((a8 + a9) + (a10 + a11));
+}

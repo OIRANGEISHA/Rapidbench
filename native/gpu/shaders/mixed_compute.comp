@@ -1,0 +1,40 @@
+#version 450
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, std430) readonly buffer InputBuffer {
+  vec4 values[];
+} input_buffer;
+
+layout(set = 0, binding = 1, std430) writeonly buffer OutputBuffer {
+  vec4 values[];
+} output_buffer;
+
+layout(push_constant) uniform Parameters {
+  uint output_offset;
+  uint reserved;
+} parameters;
+
+void main() {
+  const uint index = gl_GlobalInvocationID.x;
+  const vec4 seed = input_buffer.values[index];
+  vec4 fp0 = seed + vec4(0.125, 0.25, 0.375, 0.5);
+  vec4 fp1 = seed + vec4(0.625, 0.75, 0.875, 1.0);
+  uvec4 integer0 = floatBitsToUint(seed) ^ uvec4(0x9E3779B9u);
+  uvec4 integer1 = floatBitsToUint(seed.wzyx) + uvec4(0x85EBCA6Bu);
+
+  // One Mixed Work unit is one lane of this fixed loop body.
+  for (uint iteration = 0; iteration < 64; ++iteration) {
+    fp0 = fma(fp0, vec4(0.99991), fp1);
+    integer0 = (integer0 * uvec4(1664525u) + integer1) ^
+               (integer0 >> uvec4(7u));
+    fp1 = fp1 * vec4(0.99983) +
+          uintBitsToFloat((integer0 & uvec4(0x007FFFFFu)) |
+                          uvec4(0x3F000000u)) * vec4(0.00001);
+    integer1 = (integer1 + uvec4(floatBitsToUint(fp0))) ^
+               (integer0 << uvec4(5u));
+  }
+
+  output_buffer.values[index] =
+      fp0 + fp1 + uintBitsToFloat((integer0 ^ integer1) | uvec4(0x3F000000u));
+}
