@@ -207,13 +207,10 @@ class _BenchBody extends StatelessWidget {
     CpuTopology topology,
     int? performanceGroup,
   ) {
-    final cpus = topology.allowedCpus
-        .where(
-          (cpu) =>
-              cpu.online &&
-              (performanceGroup == null ||
-                  cpu.performanceGroup == performanceGroup),
-        )
+    final cpus = topology.cpus
+        .where((cpu) =>
+            performanceGroup == null ||
+            cpu.performanceGroup == performanceGroup)
         .toList()
       ..sort((left, right) => left.logicalCpu.compareTo(right.logicalCpu));
     return cpus;
@@ -313,18 +310,18 @@ class _BenchBody extends StatelessWidget {
     if (result == null) {
       return null;
     }
+    if (result.affinityFailures > 0) {
+      return 'Affinity ×${result.affinityFailures}';
+    }
     if (!result.affinityChecked) {
       return 'Pin check unavailable';
     }
-    if (result.affinityFailures == 0) {
-      return 'CPU pinned';
-    }
-    return 'Affinity ×${result.affinityFailures}';
+    return 'CPU pinned';
   }
 
   static CpuLogicalInfo? _cpuById(CpuTopology topology, int logicalCpu) {
-    for (final cpu in topology.allowedCpus) {
-      if (cpu.online && cpu.logicalCpu == logicalCpu) {
+    for (final cpu in topology.cpus) {
+      if (cpu.logicalCpu == logicalCpu) {
         return cpu;
       }
     }
@@ -350,9 +347,7 @@ class _BenchBody extends StatelessWidget {
     BuildContext context,
     BenchmarkController controller,
   ) async {
-    final cpus = controller.topology.allowedCpus
-        .where((cpu) => cpu.online)
-        .toList()
+    final cpus = controller.topology.cpus.toList()
       ..sort((left, right) => left.logicalCpu.compareTo(right.logicalCpu));
     if (cpus.isEmpty) {
       return;
@@ -438,8 +433,7 @@ class _BenchBody extends StatelessWidget {
     BenchmarkController controller,
   ) async {
     final topology = controller.topology;
-    final groups = topology.allowedCpus
-        .where((cpu) => cpu.online)
+    final groups = topology.cpus
         .map((cpu) => cpu.performanceGroup)
         .toSet()
         .toList()
@@ -524,7 +518,7 @@ class _BenchBody extends StatelessWidget {
 
   static List<String> _topologyLines(CpuTopology topology) {
     final groups = <int, List<CpuLogicalInfo>>{};
-    for (final cpu in topology.allowedCpus) {
+    for (final cpu in topology.cpus) {
       groups.putIfAbsent(cpu.performanceGroup, () => []).add(cpu);
     }
     final keys = groups.keys.toList()..sort();

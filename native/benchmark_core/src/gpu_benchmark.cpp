@@ -1,4 +1,5 @@
 #include "benchmark/gpu_benchmark.h"
+#include "benchmark/gpu_timing.h"
 
 #include <algorithm>
 #include <array>
@@ -738,14 +739,16 @@ public:
                          : "Waiting for the GPU workload failed";
       return result;
     }
-    result.seconds =
+    const double host_seconds =
         std::chrono::duration<double>(host_end - host_start).count();
+    result.seconds = host_seconds;
     result.timing_mode = GpuTimingMode::kHostFallback;
     if (use_timestamp) {
       std::array<std::uint64_t, 2> timestamps{};
       const VkResult query_result = functions_.GetQueryPoolResults(
           device_, query_pool_, 0U, 2U, sizeof(timestamps), timestamps.data(),
-          sizeof(std::uint64_t), VK_QUERY_RESULT_64_BIT);
+          sizeof(std::uint64_t),
+          VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
       if (query_result == VK_SUCCESS) {
         std::uint64_t ticks = 0U;
         const std::uint32_t valid_bits = queue_properties_.timestampValidBits;
@@ -758,10 +761,12 @@ public:
         const double gpu_seconds =
             static_cast<double>(ticks) * properties_.limits.timestampPeriod *
             1.0e-9;
-        if (gpu_seconds > 0.0 && std::isfinite(gpu_seconds)) {
-          result.seconds = gpu_seconds;
+        const auto timing =
+            detail::SelectGpuElapsedSeconds(host_seconds, gpu_seconds, true);
+        result.seconds = timing.seconds;
+        if (timing.used_gpu_timestamp) {
           result.timing_mode = GpuTimingMode::kGpuTimestamp;
-        } else {
+        } else if (timing.disable_gpu_timestamps) {
           timestamp_usable_ = false;
         }
       } else {

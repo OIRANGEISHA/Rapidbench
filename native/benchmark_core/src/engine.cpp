@@ -26,7 +26,6 @@ constexpr std::int32_t kInvalidArgument = -1;
 constexpr std::int32_t kBusy = -2;
 constexpr std::int32_t kTopologyUnavailable = -10;
 constexpr std::int32_t kThreadCreationFailed = -11;
-constexpr std::int32_t kAffinityUnavailable = -12;
 constexpr std::uint32_t kMaximumBenchmarkThreads = 64;
 constexpr std::uint32_t kWindowCount = 3;
 constexpr std::uint64_t kRequestFlagSingleCpuExplicit = 1ULL << 0U;
@@ -62,8 +61,7 @@ bool IsCpuTest(TestId test_id) {
 bool IsSelectableCpu(const Topology &topology, std::uint32_t logical_cpu) {
   return std::any_of(topology.cpus.begin(), topology.cpus.end(),
                      [logical_cpu](const CpuInfo &cpu) {
-                       return cpu.logical_cpu == logical_cpu && cpu.online &&
-                              cpu.allowed;
+                       return cpu.logical_cpu == logical_cpu;
                      });
 }
 
@@ -72,8 +70,7 @@ SelectPerformanceGroupCpus(const Topology &topology,
                            std::uint32_t performance_group) {
   std::vector<std::uint32_t> selected;
   for (const CpuInfo &cpu : topology.cpus) {
-    if (cpu.online && cpu.allowed &&
-        cpu.performance_group == performance_group) {
+    if (cpu.performance_group == performance_group) {
       selected.push_back(cpu.logical_cpu);
     }
   }
@@ -298,10 +295,8 @@ void RunWorker(WorkerContext *context, SharedRun *shared,
   std::uint32_t batches_since_affinity_check = 0;
   while (!stop_requested->load(std::memory_order_acquire) &&
          Clock::now() < warmup_deadline) {
-    if (!context->affinity_ok.load(std::memory_order_acquire) &&
-        !PinWorkerWithRetry(context)) {
-      std::this_thread::sleep_for(kAffinityRetryDelay);
-      continue;
+    if (!context->affinity_ok.load(std::memory_order_acquire)) {
+      PinWorkerWithRetry(context);
     }
     for (std::uint32_t batch = 0; batch < kWorkloadBatchesPerSchedulingCheck;
          ++batch) {
@@ -309,7 +304,11 @@ void RunWorker(WorkerContext *context, SharedRun *shared,
     }
     batches_since_affinity_check += kWorkloadBatchesPerSchedulingCheck;
     if (batches_since_affinity_check >= kAffinityCheckBatches) {
-      CheckWorkerCpu(context);
+      if (context->affinity_ok.load(std::memory_order_acquire)) {
+        CheckWorkerCpu(context);
+      } else {
+        PinWorkerWithRetry(context);
+      }
       batches_since_affinity_check = 0;
     }
   }
@@ -337,8 +336,6 @@ void RunWorker(WorkerContext *context, SharedRun *shared,
   }
 
   context->affinity_violated.store(false, std::memory_order_release);
-  bool measurement_enabled =
-      context->affinity_ok.load(std::memory_order_acquire);
   while (!stop_requested->load(std::memory_order_acquire) &&
          Clock::now() < measurement_start) {
     std::this_thread::yield();
@@ -349,10 +346,6 @@ void RunWorker(WorkerContext *context, SharedRun *shared,
   batches_since_affinity_check = 0;
   while (!stop_requested->load(std::memory_order_acquire) &&
          Clock::now() < measurement_deadline) {
-    if (!measurement_enabled) {
-      std::this_thread::sleep_for(kAffinityRetryDelay);
-      continue;
-    }
     for (std::uint32_t batch = 0; batch < kWorkloadBatchesPerSchedulingCheck;
          ++batch) {
       RunCpuWorkloadBatch(&workload);
@@ -362,7 +355,11 @@ void RunWorker(WorkerContext *context, SharedRun *shared,
     context->completed_work.store(local_work, std::memory_order_release);
     batches_since_affinity_check += kWorkloadBatchesPerSchedulingCheck;
     if (batches_since_affinity_check >= kAffinityCheckBatches) {
-      measurement_enabled = CheckWorkerCpu(context);
+      if (context->affinity_ok.load(std::memory_order_acquire)) {
+        CheckWorkerCpu(context);
+      } else {
+        PinWorkerWithRetry(context);
+      }
       batches_since_affinity_check = 0;
     }
   }
@@ -381,7 +378,7 @@ void RunWorker(WorkerContext *context, SharedRun *shared,
     context->thread_cpu_time_ns.store(cpu_time_end - cpu_time_start,
                                       std::memory_order_release);
   }
-  if (measurement_enabled) {
+  if (context->affinity_ok.load(std::memory_order_acquire)) {
     CheckWorkerCpu(context);
   }
   context->checksum = workload.checksum;
@@ -576,13 +573,13 @@ private:
             kRequestMultiGroupShift);
         selected_cpus = SelectPerformanceGroupCpus(topology, requested_group);
         if (selected_cpus.empty()) {
-          selected_cpus =
-              SelectBenchmarkCpus(topology, request.requested_threads);
+          selected_cpus = SelectPresentCpuBenchmarkCpus(
+              topology, request.requested_threads);
           quality_flags |= kQualitySelectionFallback;
         }
       } else {
         selected_cpus =
-            SelectBenchmarkCpus(topology, request.requested_threads);
+            SelectPresentCpuBenchmarkCpus(topology, request.requested_threads);
         if (request.requested_threads != 0 &&
             selected_cpus.size() < request.requested_threads) {
           quality_flags |= kQualityThreadCountReduced;
@@ -728,11 +725,7 @@ private:
     }
 
     const std::uint32_t inactive_worker_count = CountInactiveWorkers(contexts);
-    const std::size_t active_worker_count =
-        contexts.size() - inactive_worker_count;
-    if (active_worker_count < selected_cpus.size()) {
-      quality_flags |= kQualityThreadCountReduced;
-    }
+    const std::size_t active_worker_count = contexts.size();
     PublishConfiguration(run_id, request.test_id,
                          static_cast<std::uint32_t>(active_worker_count),
                          selected_single_cpu, quality_flags);
@@ -755,18 +748,6 @@ private:
                        active_worker_count, performance_hint.IsActive(),
                        performance_request_active);
       PublishState(run_id, State::kCancelled, Phase::kNone);
-      return;
-    }
-
-    if (active_worker_count == 0) {
-      stop_requested_.store(true, std::memory_order_release);
-      {
-        std::lock_guard<std::mutex> lock(shared.mutex);
-        shared.measurement_started = true;
-      }
-      shared.cv.notify_all();
-      JoinAll(&workers);
-      PublishError(run_id, kAffinityUnavailable);
       return;
     }
 

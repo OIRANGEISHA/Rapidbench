@@ -2,6 +2,7 @@ set(BENCHMARK_CORE_SOURCES
   src/cpu_workload.cpp
   src/device_cpu_isa.cpp
   src/engine.cpp
+  src/gpu_timing.cpp
   src/memory_engine.cpp
   src/memory_frequency.cpp
   src/memory_kernels.cpp

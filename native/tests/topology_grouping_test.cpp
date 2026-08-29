@@ -88,7 +88,7 @@ bool TestPerformanceOrderingIgnoresClusterNumber() {
                 "group order followed cluster number instead of performance");
 }
 
-bool TestDisallowedCpusAreIgnored() {
+bool TestPresentCpusRemainSelectable() {
   benchmark::Topology topology;
   topology.cpus = {
       Cpu(0, 0, 0, 300, 1500000),
@@ -98,10 +98,13 @@ bool TestDisallowedCpusAreIgnored() {
   topology.cpus[2].allowed = false;
   topology.cpus[2].online = false;
   benchmark::AssignPerformanceGroups(&topology);
-  return Expect(topology.performance_group_count == 2,
-                "offline or disallowed CPUs created a selectable group") &&
-         Expect(topology.preferred_single_cpu == 1,
-                "preferred CPU selected a disallowed core");
+  const auto selected = benchmark::SelectPresentCpuBenchmarkCpus(topology, 0U);
+  return Expect(topology.performance_group_count == 3,
+                "present restricted CPU was hidden from its group") &&
+         Expect(topology.preferred_single_cpu == 2,
+                "preferred CPU did not preserve the fastest present core") &&
+         Expect(selected.size() == 3U,
+                "all-core selection omitted a present restricted CPU");
 }
 
 bool TestGroupLimit() {
@@ -121,15 +124,37 @@ bool TestGroupLimit() {
                 "group truncation was not marked in quality flags");
 }
 
-bool TestNoAllowedCpu() {
+bool TestPresentCpuWithoutAffinity() {
   benchmark::Topology topology;
   topology.cpus = {Cpu(0, 0, 0, 300, 1500000)};
   topology.cpus[0].allowed = false;
   benchmark::AssignPerformanceGroups(&topology);
-  return Expect(topology.performance_group_count == 0,
-                "empty selectable topology created a performance group") &&
-         Expect(topology.preferred_single_cpu == -1,
-                "empty selectable topology selected a preferred CPU");
+  return Expect(topology.performance_group_count == 1,
+                "present CPU without initial affinity was hidden") &&
+         Expect(topology.preferred_single_cpu == 0,
+                "present CPU without initial affinity had no fallback");
+}
+
+bool TestTenCoreSelection() {
+  benchmark::Topology topology;
+  for (std::uint32_t cpu = 0; cpu < 10; ++cpu) {
+    const std::int32_t group = cpu < 4U ? 0 : (cpu < 8U ? 1 : 2);
+    topology.cpus.push_back(
+        Cpu(cpu, group, group, 300U + static_cast<std::uint32_t>(group) * 300U,
+            1800000U + static_cast<std::uint32_t>(group) * 600000U));
+  }
+  topology.cpus[8].online = false;
+  topology.cpus[8].allowed = false;
+  topology.cpus[9].allowed = false;
+  benchmark::AssignPerformanceGroups(&topology);
+  const auto selected = benchmark::SelectPresentCpuBenchmarkCpus(topology, 0U);
+  const auto currently_available = benchmark::SelectBenchmarkCpus(topology, 0U);
+  return Expect(topology.performance_group_count == 3,
+                "ten-core topology lost a performance group") &&
+         Expect(selected.size() == 10U,
+                "ten-core all-core selection was reduced to eight workers") &&
+         Expect(currently_available.size() == 8U,
+                "available-only selector changed non-CPU benchmark behavior");
 }
 
 bool TestRankFallback() {
@@ -153,8 +178,9 @@ int main() {
   if (!TestThreeHardwareClusters() || !TestFrequencyPolicyFallback() ||
       !TestUnhelpfulClusterIdUsesPolicies() ||
       !TestPerformanceOrderingIgnoresClusterNumber() ||
-      !TestDisallowedCpusAreIgnored() || !TestGroupLimit() ||
-      !TestNoAllowedCpu() || !TestRankFallback()) {
+      !TestPresentCpusRemainSelectable() || !TestGroupLimit() ||
+      !TestPresentCpuWithoutAffinity() || !TestTenCoreSelection() ||
+      !TestRankFallback()) {
     return 1;
   }
   std::cout << "Topology grouping tests passed\n";

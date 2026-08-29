@@ -77,9 +77,7 @@ final class BenchmarkController extends ChangeNotifier {
     if (isRunning || logicalCpu == _selectedSingleCpu) {
       return;
     }
-    final selectable = topology.allowedCpus.any(
-      (cpu) => cpu.online && cpu.logicalCpu == logicalCpu,
-    );
+    final selectable = topology.cpus.any((cpu) => cpu.logicalCpu == logicalCpu);
     if (!selectable) {
       throw ArgumentError.value(logicalCpu, 'logicalCpu', 'CPU is unavailable');
     }
@@ -93,8 +91,8 @@ final class BenchmarkController extends ChangeNotifier {
       return;
     }
     if (performanceGroup != null) {
-      final selectable = topology.allowedCpus.any(
-        (cpu) => cpu.online && cpu.performanceGroup == performanceGroup,
+      final selectable = topology.cpus.any(
+        (cpu) => cpu.performanceGroup == performanceGroup,
       );
       if (!selectable) {
         throw ArgumentError.value(
@@ -138,11 +136,9 @@ final class BenchmarkController extends ChangeNotifier {
   void _refreshTopologyAndSelections() {
     final refreshed = _engine.readTopology();
     _topology = refreshed;
-    final available = refreshed.allowedCpus
-        .where((cpu) => cpu.online)
-        .toList(growable: false);
+    final available = refreshed.cpus;
     if (available.isEmpty) {
-      throw StateError('No online CPU is available for benchmarking');
+      throw StateError('No present CPU is available for benchmarking');
     }
 
     if (!available.any((cpu) => cpu.logicalCpu == _selectedSingleCpu)) {

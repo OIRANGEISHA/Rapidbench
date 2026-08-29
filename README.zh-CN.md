@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-当前发布通道：**1.0.0 Beta / Preview 预览版**。
+当前发布通道：**1.0.1 Beta 2 / Preview 预览版**。
 
 RapidBench 是一款原生 Android 性能测试工具，用于快速评估设备性能，并集中查看 CPU、GPU 的特性支持情况。它提供时间较短且可重复的 CPU、内存、存储和 Vulkan Compute 测试，同时展示 CPU 拓扑、Arm ISA 和 Vulkan 能力。
 
@@ -34,8 +34,8 @@ Flutter UI
 
 ### CPU 算法
 
-- RapidBench 在运行时读取在线 CPU、亲和性掩码、capacity、cluster ID 和最大频率，并按照观测到的性能特征动态分组，因此能够适配双簇、三簇和更多簇的设计。
-- 单核测试将一个 worker 绑定到用户选择的逻辑 CPU；多核测试会为所选 CPU 簇中的每个核心，或全部允许使用的核心，分别创建 worker。程序会重试并定期核验亲和性；发生跑核后，在重新绑定成功前的工作量不会计入结果。
+- RapidBench 在运行时读取 present/online CPU、亲和性掩码、capacity、cluster ID、全局 CPUFreq policy 和最大频率，并按照观测到的性能特征动态分组；旧内核未暴露逐 CPU CPUFreq 链接时也能识别簇和频率。
+- 单核测试会尝试把一个 worker 绑定到所选逻辑 CPU；多核测试会为所选簇或全设备中的每个 present CPU 创建 worker。Android 拒绝亲和性请求时，worker 仍会持续施加负载并定期重试，同时显示 Affinity 警告，而不是直接让测试报错退出。
 - Android 支持时，原生引擎会通过 Performance Hint 请求最高性能调度，并在测试期间持续报告实际工作时长。
 - 每个 worker 使用包含 128 个 32 位整数和 128 个浮点数的确定性状态。每个 batch 进行 8 轮整数雪崩运算（加法、异或、乘法、移位和循环移位）、可向量化浮点递推以及 checksum 归约。Checksum 让计算结果保持可观察，防止编译器删掉负载。
 - CPU 默认先预热 2.5 秒，再测量 10 秒。
@@ -67,7 +67,7 @@ CPU 分数只适合在相同 RapidBench 工作负载版本之间比较，不是�
 - FP32、原生 FP16 和模拟 FP16 都提供 8、12、16 条累加链变体。预热期间，RapidBench 按正序和逆序实测可用变体，并选择当前 GPU 上实际吞吐最高的版本。代码不包含 Adreno、Mali、Xclipse、PowerVR 或其他 GPU 品牌白名单。
 - 12/16 路管线属于可选优化；驱动拒绝创建时会退回必需的 8 路管线。只有 Vulkan 报告 `shaderFloat16` 后才运行原生 FP16，否则使用兼容模拟路径。
 - 16 区输出环形缓冲让连续 dispatch 写入不同区域，仅在区域即将复用时插入 Compute Barrier，从而减少不必要的串行等待，同时维持正确性。
-- FLOPS/GOPS 按所选 Shader 的实际操作数计算。驱动支持时使用 GPU Timestamp，否则会明确标记 Host Timing 回退。
+- FLOPS/GOPS 按所选 Shader 的实际操作数计算。GPU Timestamp 只有在与独立测得的 Host Fence 时间保持合理一致时才会采用；无效或明显异常的样本会回退到已标记的 Host Timing。
 - 每个 GPU 项目预热约 700 ms，正式测量约 6 秒。
 
 ### 设备特性检测

@@ -13,6 +13,7 @@
 #include <vector>
 
 #if defined(__linux__)
+#include <dirent.h>
 #include <sched.h>
 #include <sys/syscall.h>
 #include <time.h>
@@ -157,6 +158,54 @@ std::string FrequencyPolicyRoot(std::int32_t policy_id) {
          "/";
 }
 
+std::optional<std::int32_t>
+ReadFrequencyPolicyIdForCpu(std::uint32_t logical_cpu,
+                            const std::string &per_cpu_root) {
+  if (const auto direct = ReadFrequencyPolicyId(per_cpu_root);
+      direct.has_value()) {
+    return direct;
+  }
+#if defined(__linux__)
+  constexpr const char *kPolicyDirectory = "/sys/devices/system/cpu/cpufreq/";
+  DIR *directory = opendir(kPolicyDirectory);
+  if (directory == nullptr) {
+    return std::nullopt;
+  }
+  while (const dirent *entry = readdir(directory)) {
+    const std::string name(entry->d_name);
+    const std::string id_text =
+        name.rfind("policy", 0U) == 0U ? name.substr(6U) : std::string{};
+    if (id_text.empty() ||
+        !std::all_of(id_text.begin(), id_text.end(), [](char character) {
+          return std::isdigit(static_cast<unsigned char>(character)) != 0;
+        })) {
+      continue;
+    }
+    std::uint64_t policy_number = 0U;
+    for (const char digit : id_text) {
+      policy_number =
+          policy_number * 10U + static_cast<std::uint64_t>(digit - '0');
+    }
+    if (policy_number > static_cast<std::uint64_t>(INT32_MAX)) {
+      continue;
+    }
+    const std::string root = std::string(kPolicyDirectory) + name + "/";
+    for (const char *list_name : {"related_cpus", "affected_cpus"}) {
+      const auto list = ReadLine(root + list_name);
+      if (list.has_value()) {
+        const auto cpus = ParseCpuList(*list);
+        if (std::binary_search(cpus.begin(), cpus.end(), logical_cpu)) {
+          closedir(directory);
+          return static_cast<std::int32_t>(policy_number);
+        }
+      }
+    }
+  }
+  closedir(directory);
+#endif
+  return std::nullopt;
+}
+
 std::uint32_t ReadFrequencyValue(const std::string &cpufreq_root,
                                  std::int32_t policy_id,
                                  const char *primary_name,
@@ -267,9 +316,6 @@ void AssignPerformanceGroups(Topology *topology) {
   bool clusters_complete = true;
   bool policies_complete = true;
   for (const CpuInfo &cpu : topology->cpus) {
-    if (!cpu.allowed) {
-      continue;
-    }
     if (cpu.cluster_id < 0) {
       clusters_complete = false;
     } else {
@@ -309,9 +355,6 @@ void AssignPerformanceGroups(Topology *topology) {
 
   std::map<std::int64_t, std::uint64_t> group_ranks;
   for (const CpuInfo &cpu : topology->cpus) {
-    if (!cpu.allowed) {
-      continue;
-    }
     const std::int64_t identity = PerformanceGroupIdentity(cpu, source);
     auto [entry, inserted] =
         group_ranks.emplace(identity, PerformanceRank(cpu));
@@ -346,9 +389,6 @@ void AssignPerformanceGroups(Topology *topology) {
         assigned_groups.find(PerformanceGroupIdentity(cpu, source));
     if (group != assigned_groups.end()) {
       cpu.performance_group = group->second;
-    }
-    if (!cpu.allowed) {
-      continue;
     }
     const std::uint64_t rank = PerformanceRank(cpu);
     if (topology->preferred_single_cpu < 0 || rank > best_rank) {
@@ -412,7 +452,8 @@ Topology DetectTopology() {
     cpu.core_id =
         ReadInteger<std::int32_t>(root + "topology/core_id").value_or(-1);
     cpu.frequency_policy_id =
-        ReadFrequencyPolicyId(root + "cpufreq/").value_or(-1);
+        ReadFrequencyPolicyIdForCpu(logical_cpu, root + "cpufreq/")
+            .value_or(-1);
     cpu.max_frequency_khz =
         ReadFrequencyValue(root + "cpufreq/", cpu.frequency_policy_id,
                            "cpuinfo_max_freq", "scaling_max_freq");
@@ -424,11 +465,11 @@ Topology DetectTopology() {
     }
     if (cpu.allowed) {
       ++topology.allowed_count;
-      missing_capacity = missing_capacity || cpu.capacity == 0;
-      missing_frequency = missing_frequency || cpu.max_frequency_khz == 0;
-      missing_cluster = missing_cluster ||
-                        (cpu.cluster_id < 0 && cpu.frequency_policy_id < 0);
     }
+    missing_capacity = missing_capacity || cpu.capacity == 0;
+    missing_frequency = missing_frequency || cpu.max_frequency_khz == 0;
+    missing_cluster =
+        missing_cluster || (cpu.cluster_id < 0 && cpu.frequency_policy_id < 0);
     topology.cpus.push_back(cpu);
   }
 
@@ -446,11 +487,14 @@ Topology DetectTopology() {
   return topology;
 }
 
-std::vector<std::uint32_t>
-SelectBenchmarkCpus(const Topology &topology, std::uint32_t requested_threads) {
+namespace {
+
+std::vector<std::uint32_t> SelectCpuCandidates(const Topology &topology,
+                                               std::uint32_t requested_threads,
+                                               bool include_all_present) {
   std::vector<const CpuInfo *> candidates;
   for (const CpuInfo &cpu : topology.cpus) {
-    if (cpu.online && cpu.allowed) {
+    if (include_all_present || (cpu.online && cpu.allowed)) {
       candidates.push_back(&cpu);
     }
   }
@@ -473,11 +517,25 @@ SelectBenchmarkCpus(const Topology &topology, std::uint32_t requested_threads) {
   return selected;
 }
 
+} // namespace
+
+std::vector<std::uint32_t>
+SelectBenchmarkCpus(const Topology &topology, std::uint32_t requested_threads) {
+  return SelectCpuCandidates(topology, requested_threads, false);
+}
+
+std::vector<std::uint32_t>
+SelectPresentCpuBenchmarkCpus(const Topology &topology,
+                              std::uint32_t requested_threads) {
+  return SelectCpuCandidates(topology, requested_threads, true);
+}
+
 std::uint32_t ReadCurrentFrequencyKhz(std::uint32_t logical_cpu) {
 #if defined(__linux__)
   const std::string root =
       "/sys/devices/system/cpu/cpu" + std::to_string(logical_cpu) + "/cpufreq/";
-  const std::int32_t policy_id = ReadFrequencyPolicyId(root).value_or(-1);
+  const std::int32_t policy_id =
+      ReadFrequencyPolicyIdForCpu(logical_cpu, root).value_or(-1);
   return ReadFrequencyValue(root, policy_id, "scaling_cur_freq",
                             "cpuinfo_cur_freq");
 #else
@@ -496,7 +554,8 @@ ReadFrequencyResidency(std::uint32_t logical_cpu) {
   if (!entries.empty()) {
     return entries;
   }
-  const std::int32_t policy_id = ReadFrequencyPolicyId(root).value_or(-1);
+  const std::int32_t policy_id =
+      ReadFrequencyPolicyIdForCpu(logical_cpu, root).value_or(-1);
   const std::string policy_root = FrequencyPolicyRoot(policy_id);
   if (!policy_root.empty()) {
     entries = ReadFrequencyResidencyFile(policy_root + "stats/time_in_state");

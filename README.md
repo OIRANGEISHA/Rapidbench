@@ -2,7 +2,7 @@
 
 [简体中文](README.zh-CN.md)
 
-Current channel: **1.0.0 Beta / Preview**.
+Current channel: **1.0.1 Beta 2 / Preview**.
 
 RapidBench is a native Android benchmark for a quick assessment of device performance and a compact overview of CPU and GPU capability support. It combines short, repeatable CPU, memory, storage, and Vulkan compute tests with hardware topology, Arm ISA, and Vulkan feature reporting.
 
@@ -34,8 +34,8 @@ Flutter UI
 
 ### CPU algorithm
 
-- RapidBench reads online CPUs, affinity masks, capacity, cluster IDs, and maximum frequency data at runtime. It groups CPUs by observed performance characteristics, so two-, three-, and four-cluster designs are handled dynamically.
-- A single-thread test pins one worker to the selected logical CPU. A multi-thread test creates one worker for each CPU in the selected group, or for every allowed CPU. Affinity is retried and periodically verified; work performed after an affinity violation is excluded until pinning succeeds again.
+- RapidBench reads present and online CPUs, affinity masks, capacity, cluster IDs, global CPUFreq policies, and maximum frequency data at runtime. It groups CPUs by observed performance characteristics, including kernels that do not expose per-CPU CPUFreq links.
+- A single-thread test tries to pin one worker to the selected logical CPU. A multi-thread test creates one worker for every present CPU in the selected group or across the device. If Android refuses an affinity request, the worker keeps producing load, periodically retries pinning, and reports an affinity warning instead of aborting the run.
 - Where Android exposes it, the engine requests maximum-performance scheduling through performance hints and reports actual work duration during the run.
 - Every worker owns deterministic state containing 128 32-bit integers and 128 floating-point values. One batch executes eight rounds of integer avalanche operations (add, xor, multiply, shift, and rotate), vectorizable floating-point recurrences, and a checksum reduction. The checksum keeps the results observable and prevents the workload from being optimized away.
 - CPU tests use a 2.5-second warm-up followed by a 10-second measurement.
@@ -67,7 +67,7 @@ The CPU number is meaningful only within the same RapidBench workload version. I
 - FP32, native FP16, and emulated FP16 provide 8-, 12-, and 16-accumulator variants. During warm-up, RapidBench measures available variants in forward and reverse order and selects the highest-throughput version for that GPU. No Adreno, Mali, Xclipse, PowerVR, or other vendor-name whitelist is used.
 - The 12- and 16-accumulator pipelines are optional. If a driver rejects them, the test falls back to the required 8-accumulator pipeline. Native FP16 is enabled only when Vulkan reports `shaderFloat16`; otherwise the compatible emulated path is used.
 - A 16-region output ring lets consecutive dispatches write independent ranges. A compute barrier is inserted only before a region is reused, reducing unnecessary dispatch serialization while preserving correctness.
-- FLOPS/GOPS are derived from the exact operation count of the selected shader. GPU timestamps are used when supported, with host timing as a declared fallback.
+- FLOPS/GOPS are derived from the exact operation count of the selected shader. Supported GPU timestamps are accepted only when they remain plausible against the independently measured host fence duration; invalid or implausible samples use the declared host-timing fallback.
 - Each GPU item measures for approximately 6 seconds after a 700 ms warm-up.
 
 ### Device capability reporting

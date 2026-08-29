@@ -51,6 +51,10 @@ void AssignPerformanceGroups(Topology *topology);
 std::vector<std::uint32_t> SelectBenchmarkCpus(const Topology &topology,
                                                std::uint32_t requested_threads);
 
+std::vector<std::uint32_t>
+SelectPresentCpuBenchmarkCpus(const Topology &topology,
+                              std::uint32_t requested_threads);
+
 std::uint32_t ReadCurrentFrequencyKhz(std::uint32_t logical_cpu);
 
 std::vector<FrequencyResidency>
