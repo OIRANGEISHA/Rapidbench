@@ -1,7 +1,7 @@
 # RapidBench 开发、版本迭代与发布规范
 
-> 文档版本：1.1  
-> 适用范围：Beta、Preview、Release Candidate、Stable、Hotfix 版本  
+> 文档版本：1.1
+> 适用范围：Beta、Preview、Release Candidate、Stable、Hotfix 版本
 > 最后更新：2026-08-29
 
 本文档用于规范 RapidBench 后续版本的需求整理、增量开发、测试验证、Git 提交、Android 构建和 GitHub 发布流程。目标是保证每个版本可复现、可验证、可追踪，并避免未经验证的性能结论进入公开版本。
