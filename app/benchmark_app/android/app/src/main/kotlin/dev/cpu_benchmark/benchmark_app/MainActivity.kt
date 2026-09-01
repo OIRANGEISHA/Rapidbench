@@ -1,7 +1,10 @@
 package dev.cpu_benchmark.benchmark_app
 
 import android.app.ActivityManager
+import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.opengl.EGL14
 import android.opengl.GLES20
 import android.os.Build
@@ -13,6 +16,10 @@ import java.io.File
 import java.util.concurrent.Executors
 
 class MainActivity : FlutterActivity() {
+    private companion object {
+        const val PROJECT_URL = "https://github.com/OIRANGEISHA/Rapidbench"
+    }
+
     private val deviceExecutor = Executors.newSingleThreadExecutor()
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -21,23 +28,25 @@ class MainActivity : FlutterActivity() {
             flutterEngine.dartExecutor.binaryMessenger,
             "dev.cpu_benchmark.benchmark_app/device_info",
         ).setMethodCallHandler { call, result ->
-            if (call.method != "getDeviceInfo") {
-                result.notImplemented()
-                return@setMethodCallHandler
-            }
-            deviceExecutor.execute {
-                try {
-                    val info = collectDeviceInfo()
-                    runOnUiThread { result.success(info) }
-                } catch (error: Throwable) {
-                    runOnUiThread {
-                        result.error(
-                            "DEVICE_INFO_FAILED",
-                            error.message ?: error.javaClass.simpleName,
-                            null,
-                        )
+            when (call.method) {
+                "getDeviceInfo" -> {
+                    deviceExecutor.execute {
+                        try {
+                            val info = collectDeviceInfo()
+                            runOnUiThread { result.success(info) }
+                        } catch (error: Throwable) {
+                            runOnUiThread {
+                                result.error(
+                                    "DEVICE_INFO_FAILED",
+                                    error.message ?: error.javaClass.simpleName,
+                                    null,
+                                )
+                            }
+                        }
                     }
                 }
+                "openProjectPage" -> openProjectPage(result)
+                else -> result.notImplemented()
             }
         }
     }
@@ -64,6 +73,7 @@ class MainActivity : FlutterActivity() {
         }
 
         return mapOf(
+            "app" to collectAppInfo(),
             "system" to mapOf(
                 "manufacturer" to Build.MANUFACTURER,
                 "brand" to Build.BRAND,
@@ -101,6 +111,44 @@ class MainActivity : FlutterActivity() {
             ),
             "gpu" to collectOpenGlInfo(),
         )
+    }
+
+    @Suppress("DEPRECATION")
+    private fun collectAppInfo(): Map<String, Any> {
+        val packageInfo = packageManager.getPackageInfo(packageName, 0)
+        val versionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            packageInfo.longVersionCode
+        } else {
+            packageInfo.versionCode.toLong()
+        }
+        return mapOf(
+            "name" to applicationInfo.loadLabel(packageManager).toString(),
+            "versionName" to (packageInfo.versionName ?: "Unavailable"),
+            "versionCode" to versionCode,
+            "repository" to PROJECT_URL,
+        )
+    }
+
+    private fun openProjectPage(result: MethodChannel.Result) {
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(PROJECT_URL)).apply {
+                addCategory(Intent.CATEGORY_BROWSABLE)
+            }
+            startActivity(intent)
+            result.success(true)
+        } catch (error: ActivityNotFoundException) {
+            result.error(
+                "PROJECT_LINK_UNAVAILABLE",
+                "No browser is available to open the RapidBench repository.",
+                null,
+            )
+        } catch (error: Throwable) {
+            result.error(
+                "PROJECT_LINK_FAILED",
+                error.message ?: error.javaClass.simpleName,
+                null,
+            )
+        }
     }
 
     private fun detectMemoryType(): String {

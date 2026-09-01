@@ -63,6 +63,7 @@ class _DeviceOverview extends StatelessWidget {
     final storage = bundle.section('storage');
     final gpu = bundle.section('gpu');
     final topology = bundle.topology;
+    final app = bundle.section('app');
     final cpuIsa = bundle.cpuIsa;
     final vulkanAvailable = bundle.vulkan['status'] == 'available';
     return ListView(
@@ -124,6 +125,16 @@ class _DeviceOverview extends StatelessWidget {
             'Android ${_value(system, 'androidVersion')} • SDK ${_value(system, 'sdkLevel')}',
           ],
           onTap: () => _open(context, _SystemDetailPage(bundle: bundle)),
+        ),
+        _DeviceSectionCard(
+          icon: Icons.info_outline,
+          title: 'ABOUT APP',
+          lines: [
+            '${_value(app, 'name')} • Version '
+                '${_value(app, 'versionName')}',
+            _value(app, 'repository'),
+          ],
+          onTap: () => _open(context, _AboutAppPage(app: app)),
         ),
       ],
     );
@@ -496,6 +507,92 @@ class _SystemDetailPage extends StatelessWidget {
             label: 'Supported ABIs',
             value: _listValue(system['supportedAbis'])),
       ],
+    );
+  }
+}
+
+class _AboutAppPage extends StatelessWidget {
+  const _AboutAppPage({required this.app});
+
+  final Map<String, dynamic> app;
+
+  @override
+  Widget build(BuildContext context) {
+    final repository = _value(app, 'repository');
+    return _DetailPage(
+      title: 'ABOUT APP',
+      children: [
+        _DetailRow(
+          label: 'Application',
+          value: _value(app, 'name'),
+        ),
+        _DetailRow(label: 'Version', value: _value(app, 'versionName')),
+        _DetailRow(label: 'Build', value: _value(app, 'versionCode')),
+        const _DetailSectionTitle('PROJECT'),
+        _ProjectLinkCard(url: repository),
+      ],
+    );
+  }
+}
+
+class _ProjectLinkCard extends StatelessWidget {
+  const _ProjectLinkCard({required this.url});
+
+  final String url;
+
+  Future<void> _open(BuildContext context) async {
+    try {
+      final opened = await DeviceInfoService.openProjectPage();
+      if (!context.mounted) {
+        return;
+      }
+      if (!opened) {
+        throw StateError('Android did not open the project page');
+      }
+    } catch (_) {
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Unable to open GitHub. Copy the link and open it in a browser.',
+            ),
+          ),
+        );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1A1F24),
+        border: Border.all(color: const Color(0xFF293139)),
+        borderRadius: BorderRadius.circular(5),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SelectableText(
+            url,
+            style: const TextStyle(color: Color(0xFF49B6A7), height: 1.35),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () => _open(context),
+              icon: const Icon(Icons.open_in_browser_outlined),
+              label: const Text('OPEN GITHUB'),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

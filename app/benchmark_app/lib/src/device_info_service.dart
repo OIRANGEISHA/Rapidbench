@@ -78,6 +78,12 @@ abstract final class DeviceInfoService {
     );
   }
 
+  /// Opens the fixed RapidBench repository page through the Android browser.
+  static Future<bool> openProjectPage() async {
+    final opened = await _channel.invokeMethod<bool>('openProjectPage');
+    return opened ?? false;
+  }
+
   static Object? _deepConvert(Object? value) {
     if (value is Map) {
       return <String, dynamic>{
