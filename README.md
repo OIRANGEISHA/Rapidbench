@@ -2,7 +2,7 @@
 
 [简体中文](README.zh-CN.md)
 
-Current channel: **1.0.1 Beta 2 / Preview**.
+Current development channel: **1.0.2 Beta 3 / Preview**.
 
 RapidBench is a native Android benchmark for a quick assessment of device performance and a compact overview of CPU and GPU capability support. It combines short, repeatable CPU, memory, storage, and Vulkan compute tests with hardware topology, Arm ISA, and Vulkan feature reporting.
 
@@ -16,7 +16,7 @@ It is intended for fast device checks, tuning comparisons, and regression testin
 | Memory | Multi-thread read, write, and bidirectional-traffic system `memcpy()` bandwidth |
 | Storage | Sequential read/write, 4 KiB Q1T1, 4 KiB Q8T1, 4 KiB Q1T4, SQLite insert, and SQLite delete |
 | GPU | Vulkan FP32, native or emulated FP16, INT32, mixed compute, and GPU memory bandwidth |
-| Device | CPU topology, maximum frequencies, capacity groups, kernel-reported Arm ISA level, HWCAP/HWCAP2 instruction features, memory information, and Vulkan features/extensions |
+| Device | CPU topology, maximum frequencies, capacity groups, kernel-reported Arm ISA level, HWCAP/HWCAP2 instruction features, memory information, Vulkan features/extensions, and About App information with the project link |
 
 Each benchmark card can be run individually. CPU and multi-core selectors are generated from the current device instead of assuming a fixed number of clusters.
 

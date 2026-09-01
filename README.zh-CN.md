@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-当前发布通道：**1.0.1 Beta 2 / Preview 预览版**。
+当前开发通道：**1.0.2 Beta 3 / Preview 预览版**。
 
 RapidBench 是一款原生 Android 性能测试工具，用于快速评估设备性能，并集中查看 CPU、GPU 的特性支持情况。它提供时间较短且可重复的 CPU、内存、存储和 Vulkan Compute 测试，同时展示 CPU 拓扑、Arm ISA 和 Vulkan 能力。
 
@@ -16,7 +16,7 @@ RapidBench 是一款原生 Android 性能测试工具，用于快速评估设备
 | 内存 | 多线程读取、写入以及按双向流量统计的系统 `memcpy()` 带宽 |
 | 存储 | 顺序读写、4 KiB Q1T1、4 KiB Q8T1、4 KiB Q1T4、SQLite Insert 和 SQLite Delete |
 | GPU | Vulkan FP32、原生或模拟 FP16、INT32、Mixed Compute 和 GPU 内存带宽 |
-| 设备 | CPU 拓扑、最大频率、容量分组、内核报告的 Arm ISA 等级、HWCAP/HWCAP2 指令特性、内存信息和 Vulkan 特性/扩展 |
+| 设备 | CPU 拓扑、最大频率、容量分组、内核报告的 Arm ISA 等级、HWCAP/HWCAP2 指令特性、内存信息、Vulkan 特性/扩展，以及包含项目链接的 About App 信息 |
 
 每张测试卡都可以单独运行。CPU 核心和多核簇选项来自当前设备的动态检测，不会假定设备固定只有两个或三个簇。
 

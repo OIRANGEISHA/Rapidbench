@@ -1,6 +1,20 @@
 # Changelog
 
-## 1.0.1 Beta 2
+## [Unreleased]
+
+### Added
+
+- Added an About App entry to the Device module. It displays the installed package version and the RapidBench GitHub repository URL.
+- The GitHub action opens the repository in the device's browser through Android's native `ACTION_VIEW` intent without adding a third-party Flutter dependency.
+- 在 Device 模块新增 About App 入口，显示实际安装包版本和 RapidBench GitHub 仓库地址。
+- 点击 GitHub 按钮会通过 Android 原生 `ACTION_VIEW` 唤起手机浏览器，不新增第三方 Flutter 依赖。
+
+### Changed
+
+- Prepared the Android app version as `1.0.2-beta.3` with build number `2017`.
+- Android 应用版本更新为 `1.0.2-beta.3`，构建号更新为 `2017`。
+
+## [1.0.1-beta.2] - 2026-08-29
 
 ### English
 
@@ -27,3 +41,6 @@ Real-device validation was completed on a PJZ110 with Snapdragon 8 Elite and Adr
 - 新增回归测试，覆盖模拟 10 核但初始有两个核心不可用、亲和性受限、旧式 CPUFreq policy，以及 GPU 时间戳无效或失真的情况。
 
 本版本已在搭载骁龙 8 Elite 和 Adreno 830 的 PJZ110 上完成真机验证。由于暂时没有对应设备，玄戒 O1、Exynos 2600、骁龙 865、麒麟 990 和麒麟 980 仅完成了拓扑及计时路径模拟验证，没有将其描述为真机实测。
+
+[Unreleased]: https://github.com/OIRANGEISHA/Rapidbench/compare/v1.0.1-beta.2...HEAD
+[1.0.1-beta.2]: https://github.com/OIRANGEISHA/Rapidbench/releases/tag/v1.0.1-beta.2
