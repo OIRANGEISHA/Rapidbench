@@ -11,8 +11,8 @@
 
 ### Changed
 
-- Prepared the Android app version as `1.0.2-beta.3` with build number `2017`.
-- Android 应用版本更新为 `1.0.2-beta.3`，构建号更新为 `2017`。
+- Prepared the Android app version as `1.0.2-beta.3` with build number `4017`.
+- Android 应用版本更新为 `1.0.2-beta.3`，构建号更新为 `4017`。
 
 ## [1.0.1-beta.2] - 2026-08-29
 
