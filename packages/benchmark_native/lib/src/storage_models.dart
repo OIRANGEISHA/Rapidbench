@@ -9,13 +9,20 @@ enum StorageBenchmarkTest {
   random4KQ1T4Write(8, '4K Q1T4 WRITE', StorageMetric.random),
   sqliteInsert(9, 'SQLITE INSERT', StorageMetric.rows),
   sqliteDelete(10, 'SQLITE DELETE', StorageMetric.rows),
-  all(11, 'BENCH ALL', StorageMetric.throughput);
+  sqliteUpdate(11, 'SQLITE UPDATE', StorageMetric.rows),
+  all(12, 'BENCH ALL', StorageMetric.throughput);
 
   const StorageBenchmarkTest(this.nativeId, this.label, this.metric);
 
   final int nativeId;
   final String label;
   final StorageMetric metric;
+
+  static const databaseTests = <StorageBenchmarkTest>[
+    StorageBenchmarkTest.sqliteInsert,
+    StorageBenchmarkTest.sqliteUpdate,
+    StorageBenchmarkTest.sqliteDelete,
+  ];
 
   bool get isRunnableCard => this != StorageBenchmarkTest.all;
 

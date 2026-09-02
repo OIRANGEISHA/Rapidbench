@@ -26,3 +26,12 @@ target_link_libraries(gpu_timing_test PRIVATE benchmark_core)
 
 add_test(NAME gpu_timing_test COMMAND gpu_timing_test)
 
+add_executable(storage_sqlite_test
+  storage_sqlite_test.cpp
+)
+
+target_compile_features(storage_sqlite_test PRIVATE cxx_std_17)
+target_link_libraries(storage_sqlite_test PRIVATE benchmark_ffi)
+
+add_test(NAME storage_sqlite_test COMMAND storage_sqlite_test)
+

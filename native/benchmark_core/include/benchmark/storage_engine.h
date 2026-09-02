@@ -11,7 +11,7 @@
 
 namespace benchmark {
 
-constexpr std::size_t kStorageResultCount = 10U;
+constexpr std::size_t kStorageResultCount = 11U;
 
 enum class StorageTest : std::uint32_t {
   kNone = 0,
@@ -25,7 +25,8 @@ enum class StorageTest : std::uint32_t {
   kRandom4KQ1T4Write = 8,
   kSqliteInsert = 9,
   kSqliteDelete = 10,
-  kAll = 11,
+  kSqliteUpdate = 11,
+  kAll = 12,
 };
 
 enum class StorageState : std::uint32_t {

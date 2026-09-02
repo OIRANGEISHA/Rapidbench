@@ -17,8 +17,8 @@
 extern "C" {
 #endif
 
-#define BM_STORAGE_ABI_VERSION 1U
-#define BM_STORAGE_RESULT_COUNT 10U
+#define BM_STORAGE_ABI_VERSION 2U
+#define BM_STORAGE_RESULT_COUNT 11U
 
 #define BM_STORAGE_TEST_SEQ_READ 1U
 #define BM_STORAGE_TEST_SEQ_WRITE 2U
@@ -30,7 +30,8 @@ extern "C" {
 #define BM_STORAGE_TEST_4K_Q1T4_WRITE 8U
 #define BM_STORAGE_TEST_SQLITE_INSERT 9U
 #define BM_STORAGE_TEST_SQLITE_DELETE 10U
-#define BM_STORAGE_TEST_ALL 11U
+#define BM_STORAGE_TEST_SQLITE_UPDATE 11U
+#define BM_STORAGE_TEST_ALL 12U
 
 typedef void *bm_storage_engine_handle;
 
@@ -63,7 +64,7 @@ typedef struct bm_storage_result_v1 {
   double rows_per_second;
 } bm_storage_result_v1;
 
-typedef struct bm_storage_snapshot_v1 {
+typedef struct bm_storage_snapshot_v2 {
   uint32_t struct_size;
   uint32_t abi_version;
   uint64_t run_id;
@@ -89,7 +90,7 @@ typedef struct bm_storage_snapshot_v1 {
   double current_rows_per_second;
   double progress;
   bm_storage_result_v1 results[BM_STORAGE_RESULT_COUNT];
-} bm_storage_snapshot_v1;
+} bm_storage_snapshot_v2;
 
 BM_STORAGE_EXPORT int32_t bm_storage_engine_create(
     const char *directory, bm_storage_engine_handle *out_engine);
@@ -101,7 +102,7 @@ BM_STORAGE_EXPORT int32_t bm_storage_start(
 BM_STORAGE_EXPORT int32_t bm_storage_request_stop(
     bm_storage_engine_handle engine, uint64_t run_id);
 BM_STORAGE_EXPORT int32_t bm_storage_get_snapshot(
-    bm_storage_engine_handle engine, bm_storage_snapshot_v1 *out_snapshot);
+    bm_storage_engine_handle engine, bm_storage_snapshot_v2 *out_snapshot);
 
 #ifdef __cplusplus
 } // extern "C"

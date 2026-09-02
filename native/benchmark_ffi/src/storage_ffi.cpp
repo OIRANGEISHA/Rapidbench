@@ -20,9 +20,9 @@ bool ValidRequest(const bm_storage_request_v1 *request) {
          request->abi_version == BM_STORAGE_ABI_VERSION;
 }
 
-bool ValidSnapshot(const bm_storage_snapshot_v1 *snapshot) {
+bool ValidSnapshot(const bm_storage_snapshot_v2 *snapshot) {
   return snapshot != nullptr &&
-         snapshot->struct_size == sizeof(bm_storage_snapshot_v1) &&
+         snapshot->struct_size == sizeof(bm_storage_snapshot_v2) &&
          snapshot->abi_version == BM_STORAGE_ABI_VERSION;
 }
 
@@ -102,7 +102,7 @@ int32_t bm_storage_request_stop(bm_storage_engine_handle engine,
 }
 
 int32_t bm_storage_get_snapshot(bm_storage_engine_handle engine,
-                                bm_storage_snapshot_v1 *out_snapshot) {
+                                bm_storage_snapshot_v2 *out_snapshot) {
   if (engine == nullptr || out_snapshot == nullptr) {
     return BM_STATUS_INVALID_ARGUMENT;
   }
@@ -114,7 +114,7 @@ int32_t bm_storage_get_snapshot(bm_storage_engine_handle engine,
   }
   const benchmark::StorageSnapshot source =
       ToStorageEngine(engine)->GetSnapshot();
-  bm_storage_snapshot_v1 result{};
+  bm_storage_snapshot_v2 result{};
   result.struct_size = sizeof(result);
   result.abi_version = BM_STORAGE_ABI_VERSION;
   result.run_id = source.run_id;
@@ -152,5 +152,5 @@ static_assert(sizeof(bm_storage_request_v1) == 28,
               "bm_storage_request_v1 ABI layout changed unexpectedly");
 static_assert(sizeof(bm_storage_result_v1) == 96,
               "bm_storage_result_v1 ABI layout changed unexpectedly");
-static_assert(sizeof(bm_storage_snapshot_v1) == 1096,
-              "bm_storage_snapshot_v1 ABI layout changed unexpectedly");
+static_assert(sizeof(bm_storage_snapshot_v2) == 1192,
+              "bm_storage_snapshot_v2 ABI layout changed unexpectedly");

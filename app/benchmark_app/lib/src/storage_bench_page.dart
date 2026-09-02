@@ -95,19 +95,17 @@ class _StorageBody extends StatelessWidget {
           const SizedBox(height: 8),
           Row(
             children: [
-              Expanded(
-                child: _StorageResultCard(
-                  test: StorageBenchmarkTest.sqliteInsert,
-                  controller: controller,
+              for (var index = 0;
+                  index < StorageBenchmarkTest.databaseTests.length;
+                  index++) ...[
+                if (index > 0) const SizedBox(width: 6),
+                Expanded(
+                  child: _StorageResultCard(
+                    test: StorageBenchmarkTest.databaseTests[index],
+                    controller: controller,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _StorageResultCard(
-                  test: StorageBenchmarkTest.sqliteDelete,
-                  controller: controller,
-                ),
-              ),
+              ],
             ],
           ),
           const SizedBox(height: 14),
@@ -324,16 +322,22 @@ class _StorageResultCard extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 if (test.metric == StorageMetric.rows) ...[
-                  Text(
-                    test == StorageBenchmarkTest.sqliteInsert
-                        ? 'SQLITE INSERT'
-                        : 'SQLITE DELETE',
-                    maxLines: 1,
-                    style: const TextStyle(
-                      color: Color(0xFFB7C0C5),
-                      fontSize: 9,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: .55,
+                  SizedBox(
+                    width: double.infinity,
+                    height: 13,
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.center,
+                      child: Text(
+                        test.label,
+                        maxLines: 1,
+                        style: const TextStyle(
+                          color: Color(0xFFB7C0C5),
+                          fontSize: 9,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: .55,
+                        ),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 3),

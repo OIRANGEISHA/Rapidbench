@@ -5,8 +5,8 @@ import 'package:ffi/ffi.dart';
 
 import 'storage_models.dart';
 
-const int _storageAbiVersion = 1;
-const int _storageResultCount = 10;
+const int _storageAbiVersion = 2;
+const int _storageResultCount = 11;
 
 final class BmStorageRequestV1 extends Struct {
   @Uint32()
@@ -60,7 +60,7 @@ final class BmStorageResultV1 extends Struct {
   external double rowsPerSecond;
 }
 
-final class BmStorageSnapshotV1 extends Struct {
+final class BmStorageSnapshotV2 extends Struct {
   @Uint32()
   external int structSize;
   @Uint32()
@@ -131,11 +131,11 @@ typedef _StopNative = Int32 Function(Pointer<Void>, Uint64);
 typedef _StopDart = int Function(Pointer<Void>, int);
 typedef _SnapshotNative = Int32 Function(
   Pointer<Void>,
-  Pointer<BmStorageSnapshotV1>,
+  Pointer<BmStorageSnapshotV2>,
 );
 typedef _SnapshotDart = int Function(
   Pointer<Void>,
-  Pointer<BmStorageSnapshotV1>,
+  Pointer<BmStorageSnapshotV2>,
 );
 
 final class NativeStorageEngine {
@@ -164,7 +164,7 @@ final class NativeStorageEngine {
       calloc.free(path);
       calloc.free(outEngine);
     }
-    _snapshot = calloc<BmStorageSnapshotV1>();
+    _snapshot = calloc<BmStorageSnapshotV2>();
   }
 
   final DynamicLibrary _library;
@@ -174,7 +174,7 @@ final class NativeStorageEngine {
   late final _StopDart _stop;
   late final _SnapshotDart _read;
   late final Pointer<Void> _handle;
-  late final Pointer<BmStorageSnapshotV1> _snapshot;
+  late final Pointer<BmStorageSnapshotV2> _snapshot;
   bool _disposed = false;
 
   int start(
@@ -205,7 +205,7 @@ final class NativeStorageEngine {
   StorageBenchmarkSnapshot readSnapshot() {
     _ensureOpen();
     _snapshot.ref
-      ..structSize = sizeOf<BmStorageSnapshotV1>()
+      ..structSize = sizeOf<BmStorageSnapshotV2>()
       ..abiVersion = _storageAbiVersion;
     _check(_read(_handle, _snapshot), 'bm_storage_get_snapshot');
     final native = _snapshot.ref;

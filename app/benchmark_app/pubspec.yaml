@@ -1,7 +1,7 @@
 name: benchmark_app
 description: Lightweight Android CPU benchmark.
 publish_to: none
-version: 1.0.2-beta.3+4017
+version: 1.0.3-beta.4+4018
 
 environment:
   sdk: ">=3.5.0 <4.0.0"

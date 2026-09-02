@@ -65,6 +65,7 @@ constexpr std::uint32_t kRandomThreadCount = 4U;
 constexpr std::uint32_t kSqliteTransactionRows = 500U;
 constexpr std::uint32_t kSqliteInsertLimit = 100000U;
 constexpr std::uint32_t kSqliteDeleteLimit = 50000U;
+constexpr std::uint32_t kSqliteUpdateRows = 100000U;
 constexpr std::size_t kSqlitePayloadBytes = 512U;
 constexpr std::uint64_t kPublishIntervalNs = 100000000ULL;
 
@@ -990,8 +991,17 @@ StorageResult RunSqliteTest(RunContext &context,
     finish();
     return MakeResult(context, test, false, false, kErrorSqlite, 0, 0, 0, 0);
   }
-  if (test == StorageTest::kSqliteDelete &&
+  const bool is_insert = test == StorageTest::kSqliteInsert;
+  const bool is_update = test == StorageTest::kSqliteUpdate;
+  const bool is_delete = test == StorageTest::kSqliteDelete;
+  if ((is_update || is_delete) &&
       !PopulateSqlite(database, kSqliteInsertLimit, payload, &context.stop)) {
+    finish();
+    return MakeResult(context, test, false, false, kErrorSqlite, 0, 0, 0, 0);
+  }
+  if (is_update &&
+      (ExecSql(database, "PRAGMA wal_checkpoint(TRUNCATE);") != SQLITE_OK ||
+       ExecSql(database, "PRAGMA shrink_memory;") != SQLITE_OK)) {
     finish();
     return MakeResult(context, test, false, false, kErrorSqlite, 0, 0, 0, 0);
   }
@@ -1000,17 +1010,23 @@ StorageResult RunSqliteTest(RunContext &context,
     return MakeResult(context, test, false, true, 0, 0, 0, 0, 0);
   }
 
-  std::vector<std::uint32_t> delete_ids;
-  if (test == StorageTest::kSqliteDelete) {
-    delete_ids.resize(kSqliteInsertLimit);
-    std::iota(delete_ids.begin(), delete_ids.end(), 1U);
-    std::mt19937 random(0x5EED1234U);
-    std::shuffle(delete_ids.begin(), delete_ids.end(), random);
+  std::vector<std::uint32_t> row_ids;
+  if (!is_insert) {
+    row_ids.resize(kSqliteUpdateRows);
+    std::iota(row_ids.begin(), row_ids.end(), 1U);
+    std::mt19937 random(is_update ? 0xA11CE55U : 0x5EED1234U);
+    std::shuffle(row_ids.begin(), row_ids.end(), random);
   }
-  const char *sql = test == StorageTest::kSqliteInsert
-                        ? "INSERT INTO benchmark(id,timestamp,value,name,payload)"
-                          " VALUES(?1,?2,?3,?4,?5);"
-                        : "DELETE FROM benchmark WHERE id=?1;";
+  const char *sql = nullptr;
+  if (is_insert) {
+    sql = "INSERT INTO benchmark(id,timestamp,value,name,payload)"
+          " VALUES(?1,?2,?3,?4,?5);";
+  } else if (is_update) {
+    sql = "UPDATE benchmark SET timestamp=?2,value=?3,name=?4,payload=?5"
+          " WHERE id=?1;";
+  } else {
+    sql = "DELETE FROM benchmark WHERE id=?1;";
+  }
   if (sqlite3_prepare_v2(database, sql, -1, &statement, nullptr) != SQLITE_OK) {
     finish();
     return MakeResult(context, test, false, false, kErrorSqlite, 0, 0, 0, 0);
@@ -1020,32 +1036,51 @@ StorageResult RunSqliteTest(RunContext &context,
   const std::uint64_t duration_ns =
       static_cast<std::uint64_t>(request.duration_ms) * 1000000ULL;
   const std::uint64_t start = NowNs();
-  const std::uint32_t row_limit = test == StorageTest::kSqliteInsert
-                                      ? kSqliteInsertLimit
-                                      : kSqliteDeleteLimit;
+  const std::uint64_t row_limit =
+      is_insert ? kSqliteInsertLimit : kSqliteDeleteLimit;
   std::uint64_t rows = 0U;
   std::int32_t error = 0;
-  while (rows < row_limit && NowNs() - start < duration_ns &&
+  while ((is_update || rows < row_limit) && NowNs() - start < duration_ns &&
          !context.StopRequested()) {
     if (ExecSql(database, "BEGIN IMMEDIATE;") != SQLITE_OK) {
       error = kErrorSqlite;
       break;
     }
     std::uint32_t transaction_rows = 0U;
-    while (transaction_rows < kSqliteTransactionRows && rows < row_limit) {
-      const std::uint32_t id = test == StorageTest::kSqliteInsert
-                                   ? static_cast<std::uint32_t>(rows + 1U)
-                                   : delete_ids[static_cast<std::size_t>(rows)];
+    while (transaction_rows < kSqliteTransactionRows &&
+           (is_update || rows < row_limit) && !context.StopRequested()) {
+      std::uint32_t id = 0U;
+      if (is_insert) {
+        id = static_cast<std::uint32_t>(rows + 1U);
+      } else if (is_update) {
+        id = row_ids[static_cast<std::size_t>(rows % row_ids.size())];
+      } else {
+        id = row_ids[static_cast<std::size_t>(rows)];
+      }
       sqlite3_bind_int64(statement, 1, static_cast<sqlite3_int64>(id));
-      if (test == StorageTest::kSqliteInsert) {
+      if (is_insert) {
         sqlite3_bind_int64(statement, 2, static_cast<sqlite3_int64>(rows));
         sqlite3_bind_int(statement, 3,
                          static_cast<int>(id * 2654435761U));
         sqlite3_bind_text(statement, 4, "RapidBench", -1, SQLITE_STATIC);
         sqlite3_bind_blob(statement, 5, payload.data(), payload.size(),
                           SQLITE_STATIC);
+      } else if (is_update) {
+        const std::uint64_t marker = rows + 1U;
+        std::memcpy(payload.data(), &marker, sizeof(marker));
+        sqlite3_bind_int64(statement, 2,
+                           static_cast<sqlite3_int64>(marker));
+        sqlite3_bind_int(
+            statement, 3,
+            static_cast<int>((id * 2654435761U) ^
+                             static_cast<std::uint32_t>(marker)));
+        sqlite3_bind_text(statement, 4, "RapidBench Update", -1,
+                          SQLITE_STATIC);
+        sqlite3_bind_blob(statement, 5, payload.data(), payload.size(),
+                          SQLITE_TRANSIENT);
       }
-      if (sqlite3_step(statement) != SQLITE_DONE) {
+      if (sqlite3_step(statement) != SQLITE_DONE ||
+          (is_update && sqlite3_changes(database) != 1)) {
         error = kErrorSqlite;
         break;
       }
@@ -1188,6 +1223,7 @@ void StorageEngine::Run(StorageRequest request, std::uint64_t run_id) {
              StorageTest::kRandom4KQ1T4Read,
              StorageTest::kRandom4KQ1T4Write,
              StorageTest::kSqliteInsert,
+             StorageTest::kSqliteUpdate,
              StorageTest::kSqliteDelete};
   } else {
     tests.push_back(request.test);

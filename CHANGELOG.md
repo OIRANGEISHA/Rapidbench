@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added an independently runnable SQLite Update benchmark to the Storage module, alongside SQLite Insert and Delete.
+- The update workload reuses prepared statements and deterministic row selection while changing indexed, text, timestamp, and payload fields.
+- 在 Storage 模块新增可单独运行的 SQLite Update 测试，与 SQLite Insert、Delete 并列显示。
+- Update 测试复用预编译语句和确定性行选择，同时更新索引值、文本、时间戳与负载字段。
+
+### Changed
+
+- Prepared the Android app version as `1.0.3-beta.4` with build number `4018`.
+- Android 应用版本更新为 `1.0.3-beta.4`，构建号更新为 `4018`。
+
 ## [1.0.2-beta.3] - 2026-09-02
 
 ### Added
