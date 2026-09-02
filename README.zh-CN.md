@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-当前开发通道：**1.0.2 Beta 3 / Preview 预览版**。
+当前开发通道：**1.0.3 Beta 4 / Preview 预览版**。
 
 RapidBench 是一款原生 Android 性能测试工具，用于快速评估设备性能，并集中查看 CPU、GPU 的特性支持情况。它提供时间较短且可重复的 CPU、内存、存储和 Vulkan Compute 测试，同时展示 CPU 拓扑、Arm ISA 和 Vulkan 能力。
 
@@ -14,7 +14,7 @@ RapidBench 是一款原生 Android 性能测试工具，用于快速评估设备
 | --- | --- |
 | CPU | 可选核心的单核测试、动态识别 CPU 簇或全核心的多核测试、持续/峰值分数、亲和性检查、占用率和各簇峰值频率 |
 | 内存 | 多线程读取、写入以及按双向流量统计的系统 `memcpy()` 带宽 |
-| 存储 | 顺序读写、4 KiB Q1T1、4 KiB Q8T1、4 KiB Q1T4、SQLite Insert 和 SQLite Delete |
+| 存储 | 顺序读写、4 KiB Q1T1、4 KiB Q8T1、4 KiB Q1T4、SQLite Insert、Update 和 Delete |
 | GPU | Vulkan FP32、原生或模拟 FP16、INT32、Mixed Compute 和 GPU 内存带宽 |
 | 设备 | CPU 拓扑、最大频率、容量分组、内核报告的 Arm ISA 等级、HWCAP/HWCAP2 指令特性、内存信息、Vulkan 特性/扩展，以及包含项目链接的 About App 信息 |
 
@@ -57,7 +57,7 @@ CPU 分数只适合在相同 RapidBench 工作负载版本之间比较，不是�
 - 顺序测试使用 1 MiB 块和 Q1T1；随机测试使用确定性打乱顺序的 4 KiB 块。
 - Q1T1 使用同步 pread/pwrite；Q8T1 使用原生 Linux AIO，持续保持 8 个请求在途，并验证实际达到 QD8；Q1T4 使用 4 个原生线程在独立文件区域工作。
 - 写入测试在计时阶段后执行 `fdatasync()`，Flush 时间与吞吐分开记录。
-- SQLite 测试使用带索引的数据表和 512 字节 payload，Insert/Delete 均采用每 500 行一次的 Immediate Transaction；Delete 顺序使用固定种子打乱。
+- SQLite 测试使用带索引的数据表和 512 字节 payload。Insert、Update、Delete 均复用预编译语句，并采用每 500 行一次的 Immediate Transaction；Update 会按确定性打乱的行顺序更新 timestamp、索引值、文本和 payload，Delete 顺序同样采用确定性打乱。
 - Storage 默认预热 750 ms，正式测量 3 秒。
 
 ### GPU 算法

@@ -2,7 +2,7 @@
 
 [简体中文](README.zh-CN.md)
 
-Current development channel: **1.0.2 Beta 3 / Preview**.
+Current development channel: **1.0.3 Beta 4 / Preview**.
 
 RapidBench is a native Android benchmark for a quick assessment of device performance and a compact overview of CPU and GPU capability support. It combines short, repeatable CPU, memory, storage, and Vulkan compute tests with hardware topology, Arm ISA, and Vulkan feature reporting.
 
@@ -14,7 +14,7 @@ It is intended for fast device checks, tuning comparisons, and regression testin
 | --- | --- |
 | CPU | Selectable single core, dynamically detected multi-core clusters or all cores, sustained and peak score, affinity checks, utilization, and per-cluster peak frequency |
 | Memory | Multi-thread read, write, and bidirectional-traffic system `memcpy()` bandwidth |
-| Storage | Sequential read/write, 4 KiB Q1T1, 4 KiB Q8T1, 4 KiB Q1T4, SQLite insert, and SQLite delete |
+| Storage | Sequential read/write, 4 KiB Q1T1, 4 KiB Q8T1, 4 KiB Q1T4, SQLite insert, update, and delete |
 | GPU | Vulkan FP32, native or emulated FP16, INT32, mixed compute, and GPU memory bandwidth |
 | Device | CPU topology, maximum frequencies, capacity groups, kernel-reported Arm ISA level, HWCAP/HWCAP2 instruction features, memory information, Vulkan features/extensions, and About App information with the project link |
 
@@ -57,7 +57,7 @@ The CPU number is meaningful only within the same RapidBench workload version. I
 - Sequential tests use 1 MiB blocks at Q1T1. Random tests use 4 KiB blocks in deterministic shuffled order.
 - Q1T1 performs synchronous pread/pwrite operations. Q8T1 uses native Linux AIO with eight requests kept outstanding and validates that queue depth 8 was actually reached. Q1T4 uses four native worker threads over separate file regions.
 - Write tests flush with `fdatasync()` after the timed phase; flush time is reported separately from throughput.
-- SQLite tests use an indexed table and a 512-byte payload. Insert and delete operations are committed in 500-row immediate transactions; delete order is shuffled deterministically.
+- SQLite tests use an indexed table and a 512-byte payload. Insert, update, and delete operations use prepared statements and 500-row immediate transactions. Update changes the timestamp, indexed value, text, and payload of deterministically shuffled rows; delete order is also shuffled deterministically.
 - Storage tests use a 750 ms warm-up and a 3-second measurement by default.
 
 ### GPU algorithm
