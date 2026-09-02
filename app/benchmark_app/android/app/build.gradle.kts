@@ -6,6 +6,23 @@ plugins {
 
 val benchmarkApplicationId = providers.gradleProperty("benchmarkApplicationId")
     .orElse("dev.cpu_benchmark.benchmark_app")
+val releaseStoreFile = providers.environmentVariable("RAPIDBENCH_RELEASE_STORE_FILE")
+val releaseStorePassword = providers.environmentVariable("RAPIDBENCH_RELEASE_STORE_PASSWORD")
+val releaseKeyAlias = providers.environmentVariable("RAPIDBENCH_RELEASE_KEY_ALIAS")
+val releaseKeyPassword = providers.environmentVariable("RAPIDBENCH_RELEASE_KEY_PASSWORD")
+val releaseSigningConfigured = listOf(
+    releaseStoreFile,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword,
+).all { !it.orNull.isNullOrBlank() }
+val releaseBuildRequested = gradle.startParameter.taskNames.any {
+    it.contains("release", ignoreCase = true)
+}
+
+if (releaseBuildRequested && !releaseSigningConfigured) {
+    throw GradleException("Release signing environment variables are not configured")
+}
 
 android {
     namespace = "dev.cpu_benchmark.benchmark_app"

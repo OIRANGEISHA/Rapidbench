@@ -108,7 +108,10 @@ app/benchmark_app/build/app/outputs/flutter-apk/app-release.apk
 
 ### 签名说明
 
-当前仓库会生成经过优化、混淆和资源压缩的 Release Variant，但为了方便直接测试，仍使用 Android Debug Key 签名。提交 Play Store 或进行可信生产分发前，请将 `release` signingConfig 替换成你自己的受保护 Release Keystore，且不要提交密码或私钥。
+Release 构建会启用优化、混淆和资源压缩。只有构建环境同时提供
+`RAPIDBENCH_RELEASE_STORE_FILE`、`RAPIDBENCH_RELEASE_STORE_PASSWORD`、
+`RAPIDBENCH_RELEASE_KEY_ALIAS` 和 `RAPIDBENCH_RELEASE_KEY_PASSWORD` 时才会签名，
+项目不再回退到任意 Debug Key。Beta 使用保留的 Beta 签名以保持升级兼容；正式版或商店发布前必须采用受保护的生产密钥并制定迁移方案。不得提交签名密码或私钥。
 
 ## 如何理解结果
 

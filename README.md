@@ -108,7 +108,15 @@ app/benchmark_app/build/app/outputs/flutter-apk/app-release.apk
 
 ### Signing note
 
-The current repository config builds an optimized, minified Release variant but signs it with the Android debug key for direct testing. Before Play Store distribution or any trusted production release, replace the `release` signing configuration with your own protected release keystore. Never commit signing passwords or private keys.
+Release builds are optimized, minified, and resource-shrunk. They are signed only
+when `RAPIDBENCH_RELEASE_STORE_FILE`, `RAPIDBENCH_RELEASE_STORE_PASSWORD`,
+`RAPIDBENCH_RELEASE_KEY_ALIAS`, and `RAPIDBENCH_RELEASE_KEY_PASSWORD` are supplied
+through the build environment; the project no longer falls back to an arbitrary
+Debug key.
+
+Beta releases use the retained Beta signer to preserve update compatibility.
+Before a trusted Stable or store release, adopt a protected production keystore
+and a documented migration plan. Never commit signing passwords or private keys.
 
 ## Interpreting results
 
