@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.0.2-beta.3] - 2026-09-02
+
 ### Added
 
 - Added an About App entry to the Device module. It displays the installed package version and the RapidBench GitHub repository URL.
@@ -42,5 +44,6 @@ Real-device validation was completed on a PJZ110 with Snapdragon 8 Elite and Adr
 
 本版本已在搭载骁龙 8 Elite 和 Adreno 830 的 PJZ110 上完成真机验证。由于暂时没有对应设备，玄戒 O1、Exynos 2600、骁龙 865、麒麟 990 和麒麟 980 仅完成了拓扑及计时路径模拟验证，没有将其描述为真机实测。
 
-[Unreleased]: https://github.com/OIRANGEISHA/Rapidbench/compare/v1.0.1-beta.2...HEAD
+[Unreleased]: https://github.com/OIRANGEISHA/Rapidbench/compare/v1.0.2-beta.3...HEAD
+[1.0.2-beta.3]: https://github.com/OIRANGEISHA/Rapidbench/compare/v1.0.1-beta.2...v1.0.2-beta.3
 [1.0.1-beta.2]: https://github.com/OIRANGEISHA/Rapidbench/releases/tag/v1.0.1-beta.2
