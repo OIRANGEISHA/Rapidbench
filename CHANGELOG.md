@@ -2,6 +2,30 @@
 
 ## [Unreleased]
 
+## [1.0.4-beta.5] - 2026-09-08
+
+### Fixed
+
+- Prevent simultaneous CPU, Memory, Storage, and GPU runs, including preparation, multi-item sequences, cancellation, and cleanup. Page navigation remains available while other start controls are disabled.
+- Request a cooperative stop when the App enters the background; keep ownership until native work has finished and do not automatically resume a sequence.
+- Reclaim the large Memory buffer and Storage scratch file before their completed/stopped state can unlock another module.
+- Correct final memory bandwidth timing to include every counted pass through its actual completion, without deadline truncation or coordinator polling/join overhead. Affected results may decrease; kernels and byte counting are unchanged.
+- Wire Release signing to the explicitly configured keystore and alias instead of validating the environment but still selecting the Debug signing configuration. Retain the existing Beta certificate for upgrades.
+- 防止 CPU、Memory、Storage、GPU 同时跑分；互斥覆盖准备、连续项目、取消及清理阶段，页面仍可切换。
+- 应用进入后台时请求停止，等待原生工作结束后释放占用，不自动续跑。
+- 在发布内存或存储终态前回收大缓冲区及临时文件，避免其回收开销影响刚启动的下一模块。
+- 修正内存最终带宽的计时分母，完整计入末次已完成 pass 的耗时，排除轮询与线程回收等待；受影响结果可能降低，测试内核及字节口径不变。
+- Release 签名真正采用显式配置的密钥库及别名，继续沿用原 Beta 证书以保持覆盖升级兼容。
+
+### Changed
+
+- Clarify sequential Direct QD8 versus Buffered Q1T1 in both READMEs; all 11 Storage tests and their IDs remain unchanged, including 4K Q1T1, Q8T1, Q1T4 and SQLite Insert/Update/Delete.
+- Add automated ownership, timing, Storage route/fallback, narrow-screen, large-number, and text-scaling regression coverage, plus an Android UI smoke script.
+- Set the Android version to `1.0.4-beta.5` / `4019`. No dependency, CPU/GPU workload, or FFI ABI changes.
+- 中英文文档明确顺序 Direct QD8 / Buffered Q1T1；保留全部 11 项 Storage 测试和既有 ID，没有遗漏 Q1T1、Q8T1、Q1T4 或 SQL Update。
+- 新增互斥、计时、Storage 路径/回退、窄屏、大数字和字体缩放回归，以及 Android 界面冒烟脚本。
+- Android 版本更新为 `1.0.4-beta.5` / `4019`，未变更依赖、CPU/GPU 工作负载或 FFI ABI。
+
 ## [1.0.3-beta.4] - 2026-09-02
 
 ### Added
@@ -58,7 +82,8 @@ Real-device validation was completed on a PJZ110 with Snapdragon 8 Elite and Adr
 
 本版本已在搭载骁龙 8 Elite 和 Adreno 830 的 PJZ110 上完成真机验证。由于暂时没有对应设备，玄戒 O1、Exynos 2600、骁龙 865、麒麟 990 和麒麟 980 仅完成了拓扑及计时路径模拟验证，没有将其描述为真机实测。
 
-[Unreleased]: https://github.com/OIRANGEISHA/Rapidbench/compare/v1.0.3-beta.4...HEAD
+[Unreleased]: https://github.com/OIRANGEISHA/Rapidbench/compare/v1.0.4-beta.5...HEAD
+[1.0.4-beta.5]: https://github.com/OIRANGEISHA/Rapidbench/compare/v1.0.3-beta.4...v1.0.4-beta.5
 [1.0.3-beta.4]: https://github.com/OIRANGEISHA/Rapidbench/compare/v1.0.2-beta.3...v1.0.3-beta.4
 [1.0.2-beta.3]: https://github.com/OIRANGEISHA/Rapidbench/compare/v1.0.1-beta.2...v1.0.2-beta.3
 [1.0.1-beta.2]: https://github.com/OIRANGEISHA/Rapidbench/releases/tag/v1.0.1-beta.2

@@ -2,7 +2,7 @@
 
 [简体中文](README.zh-CN.md)
 
-Current development channel: **1.0.3 Beta 4 / Preview**.
+Current release channel: **1.0.4 Beta 5 / Preview**.
 
 RapidBench is a native Android benchmark for a quick assessment of device performance and a compact overview of CPU and GPU capability support. It combines short, repeatable CPU, memory, storage, and Vulkan compute tests with hardware topology, Arm ISA, and Vulkan feature reporting.
 
@@ -19,6 +19,14 @@ It is intended for fast device checks, tuning comparisons, and regression testin
 | Device | CPU topology, maximum frequencies, capacity groups, kernel-reported Arm ISA level, HWCAP/HWCAP2 instruction features, memory information, Vulkan features/extensions, and About App information with the project link |
 
 Each benchmark card can be run individually. CPU and multi-core selectors are generated from the current device instead of assuming a fixed number of clusters.
+
+Only one benchmark module can run at a time, including preparation and cleanup.
+You can still browse the other pages; their start controls remain disabled until
+the current run finishes. Sending the App to the background requests a cooperative
+stop and prevents the next item in a sequence from starting. Returning to the App
+does not automatically resume the test. A native bridge failure tears down the
+affected engine before releasing other modules; restart the App to use that
+engine again.
 
 ## Implementation
 
@@ -48,17 +56,19 @@ The CPU number is meaningful only within the same RapidBench workload version. I
 - The engine uses all currently allowed CPUs and divides aligned buffers into independent regions per worker.
 - The working set targets 256 MiB, is capped to one eighth of available memory, and falls back as low as 32 MiB when allocation pressure requires it.
 - Read uses an unrolled native load-and-reduction kernel. Write uses an unrolled 128-byte store pattern. Copy calls the platform's multi-threaded system `memcpy()` path on non-overlapping regions.
-- Copy reports total memory-system traffic: copied payload is counted once for the source read and once for the destination write. A 20 GB/s payload copy is therefore shown as approximately 40 GB/s of bidirectional traffic.
+- Copy counts payload once for the source read and once for the destination write. A 20 GB/s payload copy is therefore shown as approximately 40 GB/s of bidirectional traffic. This is not a hardware DDR bus counter and does not count additional cache/RFO traffic.
 - Workers synchronize before warm-up and measurement. The default measurement is 3 seconds after a 1-second warm-up.
+- Final throughput uses the completion time of the last counted worker pass. Beta 5 fixes a denominator that could previously be clamped to the requested duration even when a counted pass finished later. Polling and thread-join delays are excluded. This correction may lower affected memory results; use the same version for comparisons. Read/Write/Copy kernels and byte-counting conventions are unchanged.
 
 ### Storage algorithm
 
 - Tests operate on a prepared file in Android app-private storage. RapidBench tries `O_DIRECT` with aligned buffers and reports when it must use a buffered fallback. Cache-drop advice is issued where available.
-- Sequential tests use 1 MiB blocks at Q1T1. Random tests use 4 KiB blocks in deterministic shuffled order.
+- Sequential tests use 1 MiB blocks at QD8 (one Linux AIO submitting thread) in Direct I/O mode; their Buffered compatibility fallback uses Q1T1. Random tests use 4 KiB blocks in deterministic shuffled order.
 - Q1T1 performs synchronous pread/pwrite operations. Q8T1 uses native Linux AIO with eight requests kept outstanding and validates that queue depth 8 was actually reached. Q1T4 uses four native worker threads over separate file regions.
 - Write tests flush with `fdatasync()` after the timed phase; flush time is reported separately from throughput.
 - SQLite tests use an indexed table and a 512-byte payload. Insert, update, and delete operations use prepared statements and 500-row immediate transactions. Update changes the timestamp, indexed value, text, and payload of deterministically shuffled rows; delete order is also shuffled deterministically.
 - Storage tests use a 750 ms warm-up and a 3-second measurement by default.
+- 4 KiB Q8T1 is reported unavailable when Direct AIO is unavailable; it is not silently substituted with a Q1T1 measurement.
 
 ### GPU algorithm
 
