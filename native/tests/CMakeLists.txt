@@ -35,3 +35,19 @@ target_link_libraries(storage_sqlite_test PRIVATE benchmark_ffi)
 
 add_test(NAME storage_sqlite_test COMMAND storage_sqlite_test)
 
+add_executable(memory_timing_test memory_timing_test.cpp)
+target_compile_features(memory_timing_test PRIVATE cxx_std_17)
+target_link_libraries(memory_timing_test PRIVATE benchmark_core)
+add_test(NAME memory_timing_test COMMAND memory_timing_test)
+
+add_executable(storage_routes_test storage_routes_test.cpp)
+target_compile_features(storage_routes_test PRIVATE cxx_std_17)
+target_include_directories(storage_routes_test PRIVATE ../benchmark_core/include)
+target_link_libraries(storage_routes_test PRIVATE benchmark_ffi)
+add_test(NAME storage_routes_test COMMAND storage_routes_test)
+
+add_executable(memory_engine_test memory_engine_test.cpp)
+target_compile_features(memory_engine_test PRIVATE cxx_std_17)
+target_link_libraries(memory_engine_test PRIVATE benchmark_core)
+add_test(NAME memory_engine_test COMMAND memory_engine_test)
+

@@ -38,6 +38,7 @@
 #endif
 
 #include "benchmark/performance_hint.h"
+#include "benchmark/storage_execution.h"
 #include "sqlite3.h"
 
 namespace benchmark {
@@ -177,13 +178,17 @@ struct RawFile final {
   AlignedMemory sequential;
   AlignedMemory random;
 
-  ~RawFile() {
+  ~RawFile() { CloseAndRemove(); }
+
+  void CloseAndRemove() {
 #if defined(__linux__)
     if (fd >= 0) {
       close(fd);
+      fd = -1;
     }
     if (!path.empty()) {
       unlink(path.c_str());
+      path.clear();
     }
 #endif
   }
@@ -1105,24 +1110,17 @@ StorageResult RunSqliteTest(RunContext &context,
 
 StorageResult RunRawTest(RunContext &context, RawFile &file,
                          const StorageRequest &request, StorageTest test) {
-  if (test == StorageTest::kSequentialRead ||
-      test == StorageTest::kSequentialWrite ||
-      test == StorageTest::kRandom4KQ8T1Read ||
-      test == StorageTest::kRandom4KQ8T1Write) {
-    if (file.mode == StorageIoMode::kDirect) {
-      return RunAioTest(context, file, request, test);
-    }
-    if (test == StorageTest::kSequentialRead ||
-        test == StorageTest::kSequentialWrite) {
-      return RunSyncTest(context, file, request, test);
-    }
+  switch (detail::SelectStorageExecution(test, file.mode)) {
+  case detail::StorageExecution::kAio:
+    return RunAioTest(context, file, request, test);
+  case detail::StorageExecution::kUnavailable:
     return MakeResult(context, test, false, false, kErrorAio, 0, 0, 0, 0);
-  }
-  if (test == StorageTest::kRandom4KQ1T4Read ||
-      test == StorageTest::kRandom4KQ1T4Write) {
+  case detail::StorageExecution::kThreaded:
     return RunThreadedTest(context, file, request, test);
+  case detail::StorageExecution::kSync:
+    return RunSyncTest(context, file, request, test);
   }
-  return RunSyncTest(context, file, request, test);
+  return MakeResult(context, test, false, false, kErrorIo, 0, 0, 0, 0);
 }
 
 } // namespace
@@ -1288,6 +1286,9 @@ void StorageEngine::Run(StorageRequest request, std::uint64_t run_id) {
     }
   }
 
+  // Terminal snapshots release the application-wide benchmark lease. Remove
+  // the large scratch file first so its reclamation cannot overlap a new run.
+  file.CloseAndRemove();
   context.snapshot.active_test = StorageTest::kNone;
   context.snapshot.phase = StoragePhase::kNone;
   context.snapshot.current_outstanding = 0U;
