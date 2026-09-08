@@ -133,7 +133,7 @@ class _StorageBody extends StatelessWidget {
             children: [
               Expanded(
                 child: ElevatedButton(
-                  onPressed: controller.isRunning ? null : controller.startAll,
+                  onPressed: controller.canStart ? controller.startAll : null,
                   child: const Text('BENCH ALL'),
                 ),
               ),
@@ -284,10 +284,34 @@ class _StorageResultCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final snapshot = controller.snapshot;
+    return StorageResultCard(
+      test: test,
+      snapshot: controller.snapshot,
+      result: controller.resultFor(test),
+      onTap: controller.canStart ? () => controller.startSingle(test) : null,
+    );
+  }
+}
+
+/// Pure result presentation, shared by live UI and layout regression tests.
+class StorageResultCard extends StatelessWidget {
+  const StorageResultCard({
+    super.key,
+    required this.test,
+    required this.snapshot,
+    this.result,
+    this.onTap,
+  });
+  final StorageBenchmarkTest test;
+  final StorageBenchmarkSnapshot snapshot;
+  final StorageBenchmarkResult? result;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
     final live = snapshot.state.isRunning && snapshot.activeTest == test;
-    final result = controller.resultFor(test);
-    final enabled = !controller.isRunning;
+    final result = this.result;
+    final enabled = onTap != null;
     final validResult = result != null && result.valid;
     final primary = live
         ? _livePrimary(snapshot, test.metric)
@@ -305,7 +329,7 @@ class _StorageResultCard extends StatelessWidget {
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: enabled ? () => controller.startSingle(test) : null,
+          onTap: onTap,
           borderRadius: BorderRadius.circular(5),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 160),

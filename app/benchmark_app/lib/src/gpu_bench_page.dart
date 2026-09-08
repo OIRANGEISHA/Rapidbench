@@ -79,7 +79,7 @@ class _GpuBody extends StatelessWidget {
             _GpuResultCard(
               test: test,
               snapshot: snapshot,
-              enabled: capabilities.available && !controller.isRunning,
+              enabled: capabilities.available && controller.canStart,
               live: snapshot.state.isRunning && snapshot.activeTest == test,
               onTap: () => controller.startSingle(test),
             ),
@@ -148,7 +148,7 @@ class _GpuBody extends StatelessWidget {
             children: [
               Expanded(
                 child: ElevatedButton(
-                  onPressed: capabilities.available && !controller.isRunning
+                  onPressed: capabilities.available && controller.canStart
                       ? controller.startAll
                       : null,
                   child: const Text('BENCH GPU'),

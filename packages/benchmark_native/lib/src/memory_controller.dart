@@ -1,12 +1,11 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
-
 import 'benchmark_models.dart';
+import 'benchmark_run_coordinator.dart';
 import 'memory_bindings.dart';
 import 'memory_models.dart';
 
-final class MemoryBenchmarkController extends ChangeNotifier {
+final class MemoryBenchmarkController extends ExclusiveBenchmarkController {
   MemoryBenchmarkController() : _engine = NativeMemoryEngine() {
     _refreshFrequency();
   }
@@ -28,12 +27,12 @@ final class MemoryBenchmarkController extends ChangeNotifier {
   MemoryBenchmarkSnapshot get snapshot => _snapshot;
   MemoryFrequencyInfo? get frequency => _frequency;
   Object? get lastError => _lastError;
-  bool get isRunning => _snapshot.state.isRunning;
+  bool get isRunning => !engineUnavailable && _snapshot.state.isRunning;
   MemoryBenchmarkSnapshot? resultFor(MemoryBenchmarkTest test) =>
       _results[test];
 
   void start() {
-    if (isRunning) {
+    if (!beginBenchmark(BenchmarkModule.memory, stop)) {
       return;
     }
     _results.clear();
@@ -45,7 +44,7 @@ final class MemoryBenchmarkController extends ChangeNotifier {
   }
 
   void startSingle(MemoryBenchmarkTest test) {
-    if (isRunning) {
+    if (!beginBenchmark(BenchmarkModule.memory, stop)) {
       return;
     }
     _results.remove(test);
@@ -74,6 +73,7 @@ final class MemoryBenchmarkController extends ChangeNotifier {
     if (_sequenceIndex < 0 ||
         _sequenceIndex >= MemoryBenchmarkTest.values.length) {
       _sequenceIndex = -1;
+      finishBenchmark();
       return;
     }
     final test = MemoryBenchmarkTest.values[_sequenceIndex];
@@ -96,6 +96,7 @@ final class MemoryBenchmarkController extends ChangeNotifier {
       _lastError = error;
       _pollTimer?.cancel();
       _pollTimer = null;
+      abortBenchmark(_engine.dispose);
       notifyListeners();
     }
   }
@@ -124,6 +125,7 @@ final class MemoryBenchmarkController extends ChangeNotifier {
         _pollTimer?.cancel();
         _pollTimer = null;
         _refreshFrequency();
+        finishBenchmark();
       }
       notifyListeners();
     } catch (error) {
@@ -132,6 +134,7 @@ final class MemoryBenchmarkController extends ChangeNotifier {
       _lastError = error;
       _pollTimer?.cancel();
       _pollTimer = null;
+      abortBenchmark(_engine.dispose);
       notifyListeners();
     }
   }
@@ -154,9 +157,6 @@ final class MemoryBenchmarkController extends ChangeNotifier {
     _runSequence = false;
     _sequenceIndex = -1;
     _pollTimer?.cancel();
-    if (_snapshot.state.isRunning && _snapshot.runId != 0) {
-      _engine.requestStop(_snapshot.runId);
-    }
     _engine.dispose();
     super.dispose();
   }

@@ -71,7 +71,7 @@ class _MemoryBody extends StatelessWidget {
                   ? snapshot
                   : controller.resultFor(test),
               live: snapshot.state.isRunning && snapshot.test == test,
-              onTap: controller.isRunning
+              onTap: !controller.canStart
                   ? null
                   : () => controller.startSingle(test),
             ),
@@ -135,7 +135,7 @@ class _MemoryBody extends StatelessWidget {
             children: [
               Expanded(
                 child: ElevatedButton(
-                  onPressed: controller.isRunning ? null : controller.start,
+                  onPressed: controller.canStart ? controller.start : null,
                   child: const Text('BENCH MEMORY'),
                 ),
               ),
@@ -361,5 +361,4 @@ class _MemoryLoadFailure extends StatelessWidget {
     );
   }
 }
-
 

@@ -70,7 +70,7 @@ class _BenchBody extends StatelessWidget {
         children: [
           const _SectionLabel('CPU COMPUTE / WORKLOAD V2'),
           const SizedBox(height: 10),
-          _ScoreBlock(
+          CpuScoreBlock(
             label: 'CPU Single Thread',
             score: controller.singleScore,
             peakScore: controller.singleResult?.peakScore,
@@ -88,7 +88,7 @@ class _BenchBody extends StatelessWidget {
             showPickerIndicator: true,
           ),
           const SizedBox(height: 8),
-          _ScoreBlock(
+          CpuScoreBlock(
             label: 'CPU Multi Thread',
             score: controller.multiScore,
             peakScore: controller.multiResult?.peakScore,
@@ -146,7 +146,7 @@ class _BenchBody extends StatelessWidget {
             children: [
               Expanded(
                 child: ElevatedButton(
-                  onPressed: running ? null : controller.startCpuBench,
+                  onPressed: controller.canStart ? controller.startCpuBench : null,
                   child: const Text('BENCH CPU'),
                 ),
               ),
@@ -584,8 +584,9 @@ class _BenchBody extends StatelessWidget {
   }
 }
 
-class _ScoreBlock extends StatelessWidget {
-  const _ScoreBlock({
+class CpuScoreBlock extends StatelessWidget {
+  const CpuScoreBlock({
+    super.key,
     required this.label,
     required this.score,
     required this.live,

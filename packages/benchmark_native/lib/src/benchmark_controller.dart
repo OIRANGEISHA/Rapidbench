@@ -1,11 +1,10 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
-
 import 'benchmark_bindings.dart';
 import 'benchmark_models.dart';
+import 'benchmark_run_coordinator.dart';
 
-final class BenchmarkController extends ChangeNotifier {
+final class BenchmarkController extends ExclusiveBenchmarkController {
   factory BenchmarkController() {
     final bindings = BenchmarkBindings.open();
     return BenchmarkController._(
@@ -59,7 +58,7 @@ final class BenchmarkController extends ChangeNotifier {
   double? get singleVariation => _singleVariation;
   double? get multiVariation => _multiVariation;
   Object? get lastError => _lastError;
-  bool get isRunning => _snapshot.state.isRunning;
+  bool get isRunning => !engineUnavailable && _snapshot.state.isRunning;
   int get selectedSingleCpu => _selectedSingleCpu;
   int? get selectedMultiGroup => _selectedMultiGroup;
   BenchmarkSnapshot? get singleResult => _singleResult;
@@ -118,7 +117,7 @@ final class BenchmarkController extends ChangeNotifier {
   }
 
   void startCpuBench() {
-    if (isRunning) {
+    if (!beginBenchmark(BenchmarkModule.cpu, stop)) {
       return;
     }
     _clearResults();
@@ -126,6 +125,7 @@ final class BenchmarkController extends ChangeNotifier {
       _refreshTopologyAndSelections();
     } catch (error) {
       _lastError = error;
+      finishBenchmark();
       notifyListeners();
       return;
     }
@@ -198,6 +198,7 @@ final class BenchmarkController extends ChangeNotifier {
       _lastError = error;
       _pollTimer?.cancel();
       _pollTimer = null;
+      abortBenchmark(_engine.dispose);
       notifyListeners();
     }
   }
@@ -257,6 +258,7 @@ final class BenchmarkController extends ChangeNotifier {
         _runSequence = false;
         _pollTimer?.cancel();
         _pollTimer = null;
+        finishBenchmark();
       }
       notifyListeners();
     } catch (error) {
@@ -264,6 +266,7 @@ final class BenchmarkController extends ChangeNotifier {
       _lastError = error;
       _pollTimer?.cancel();
       _pollTimer = null;
+      abortBenchmark(_engine.dispose);
       notifyListeners();
     }
   }
@@ -285,9 +288,7 @@ final class BenchmarkController extends ChangeNotifier {
     _disposed = true;
     _runSequence = false;
     _pollTimer?.cancel();
-    if (_snapshot.state.isRunning && _snapshot.runId != 0) {
-      _engine.requestStop(_snapshot.runId);
-    }
+    // Destruction joins native workers before the base releases ownership.
     _engine.dispose();
     super.dispose();
   }

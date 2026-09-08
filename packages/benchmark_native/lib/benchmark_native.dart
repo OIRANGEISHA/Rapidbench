@@ -2,6 +2,7 @@ library benchmark_native;
 
 export 'src/benchmark_controller.dart';
 export 'src/benchmark_models.dart';
+export 'src/benchmark_run_coordinator.dart';
 export 'src/device_cpu_info.dart';
 export 'src/device_cpu_isa_info.dart';
 export 'src/device_memory_info.dart';

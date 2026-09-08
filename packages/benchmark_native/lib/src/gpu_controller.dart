@@ -1,11 +1,10 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
-
+import 'benchmark_run_coordinator.dart';
 import 'gpu_bindings.dart';
 import 'gpu_models.dart';
 
-final class GpuBenchmarkController extends ChangeNotifier {
+final class GpuBenchmarkController extends ExclusiveBenchmarkController {
   GpuBenchmarkController() : _engine = NativeGpuEngine() {
     capabilities = _engine.readCapabilities();
     _snapshot = _engine.readSnapshot();
@@ -24,7 +23,7 @@ final class GpuBenchmarkController extends ChangeNotifier {
 
   GpuBenchmarkSnapshot get snapshot => _snapshot;
   Object? get lastError => _lastError;
-  bool get isRunning => _snapshot.state.isRunning;
+  bool get isRunning => !engineUnavailable && _snapshot.state.isRunning;
 
   void startAll() => _start(GpuBenchmarkTest.all);
 
@@ -36,7 +35,7 @@ final class GpuBenchmarkController extends ChangeNotifier {
   }
 
   void _start(GpuBenchmarkTest test) {
-    if (isRunning || !capabilities.available) {
+    if (!capabilities.available || !beginBenchmark(BenchmarkModule.gpu, stop)) {
       return;
     }
     _lastError = null;
@@ -48,6 +47,7 @@ final class GpuBenchmarkController extends ChangeNotifier {
       notifyListeners();
     } catch (error) {
       _lastError = error;
+      abortBenchmark(_engine.dispose);
       notifyListeners();
     }
   }
@@ -75,12 +75,14 @@ final class GpuBenchmarkController extends ChangeNotifier {
       if (_snapshot.state.isTerminal) {
         _pollTimer?.cancel();
         _pollTimer = null;
+        finishBenchmark();
       }
       notifyListeners();
     } catch (error) {
       _lastError = error;
       _pollTimer?.cancel();
       _pollTimer = null;
+      abortBenchmark(_engine.dispose);
       notifyListeners();
     }
   }
@@ -89,13 +91,6 @@ final class GpuBenchmarkController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _pollTimer?.cancel();
-    if (_snapshot.state.isRunning && _snapshot.runId != 0) {
-      try {
-        _engine.requestStop(_snapshot.runId);
-      } catch (_) {
-        // Native destruction also joins the current bounded batch.
-      }
-    }
     _engine.dispose();
     super.dispose();
   }

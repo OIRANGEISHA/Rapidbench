@@ -1,12 +1,12 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import 'benchmark_run_coordinator.dart';
 import 'storage_bindings.dart';
 import 'storage_models.dart';
 
-final class StorageBenchmarkController extends ChangeNotifier {
+final class StorageBenchmarkController extends ExclusiveBenchmarkController {
   StorageBenchmarkController._(this._engine);
 
   static const _channel = MethodChannel(
@@ -34,7 +34,7 @@ final class StorageBenchmarkController extends ChangeNotifier {
 
   StorageBenchmarkSnapshot get snapshot => _snapshot;
   Object? get lastError => _lastError;
-  bool get isRunning => _snapshot.state.isRunning;
+  bool get isRunning => !engineUnavailable && _snapshot.state.isRunning;
   StorageBenchmarkResult? resultFor(StorageBenchmarkTest test) =>
       _snapshot.results[test];
 
@@ -45,7 +45,7 @@ final class StorageBenchmarkController extends ChangeNotifier {
   }
 
   void _start(StorageBenchmarkTest test) {
-    if (isRunning) return;
+    if (!beginBenchmark(BenchmarkModule.storage, stop)) return;
     _lastError = null;
     try {
       final runId = _engine.start(
@@ -71,6 +71,7 @@ final class StorageBenchmarkController extends ChangeNotifier {
       notifyListeners();
     } catch (error) {
       _lastError = error;
+      abortBenchmark(_engine.dispose);
       notifyListeners();
     }
   }
@@ -92,12 +93,14 @@ final class StorageBenchmarkController extends ChangeNotifier {
       if (_snapshot.state.isTerminal) {
         _pollTimer?.cancel();
         _pollTimer = null;
+        finishBenchmark();
       }
       notifyListeners();
     } catch (error) {
       _lastError = error;
       _pollTimer?.cancel();
       _pollTimer = null;
+      abortBenchmark(_engine.dispose);
       notifyListeners();
     }
   }
@@ -106,13 +109,6 @@ final class StorageBenchmarkController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _pollTimer?.cancel();
-    if (_snapshot.state.isRunning && _snapshot.runId != 0) {
-      try {
-        _engine.requestStop(_snapshot.runId);
-      } catch (_) {
-        // Destruction joins the cooperative native stop path.
-      }
-    }
     _engine.dispose();
     super.dispose();
   }

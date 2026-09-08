@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:benchmark_native/benchmark_native.dart';
 
 import 'cpu_bench_page.dart';
 import 'device_page.dart';
@@ -13,7 +14,7 @@ class AppShell extends StatefulWidget {
   State<AppShell> createState() => _AppShellState();
 }
 
-class _AppShellState extends State<AppShell> {
+class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   int _selectedIndex = 0;
 
   static const _pages = <Widget>[
@@ -25,9 +26,60 @@ class _AppShellState extends State<AppShell> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    BenchmarkRunCoordinator.instance.setForeground(
+      WidgetsBinding.instance.lifecycleState != AppLifecycleState.paused &&
+          WidgetsBinding.instance.lifecycleState != AppLifecycleState.hidden,
+    );
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      BenchmarkRunCoordinator.instance.setForeground(true);
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached) {
+      BenchmarkRunCoordinator.instance.setForeground(false);
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: IndexedStack(index: _selectedIndex, children: _pages),
+      body: Column(
+        children: [
+          Expanded(
+              child: IndexedStack(index: _selectedIndex, children: _pages)),
+          AnimatedBuilder(
+            animation: BenchmarkRunCoordinator.instance,
+            builder: (context, _) {
+              final module = BenchmarkRunCoordinator.instance.activeModule;
+              if (module == null || module.index == _selectedIndex) {
+                return const SizedBox.shrink();
+              }
+              return Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Text(
+                  '${module.label} test running • finish it to start another test',
+                  textAlign: TextAlign.center,
+                  style:
+                      const TextStyle(color: Color(0xFF49B6A7), fontSize: 12),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
       bottomNavigationBar: _BenchmarkNavigationBar(
         selectedIndex: _selectedIndex,
         onSelected: (index) => setState(() => _selectedIndex = index),
