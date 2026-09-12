@@ -2,6 +2,37 @@
 
 ## [Unreleased]
 
+## [1.1.0-beta.6] - 2026-09-12
+
+### Added
+
+- Add optional CPU application-style workloads: 65,536-key `std::sort`, fixed-schema ASCII JSON record parsing, and a 1024×1024 grayscale Sobel filter. Report independent Mkeys/s, MB/s and MPix/s, with no composite score or change to legacy CPU scores.
+- Add automatic single-worker execution on the detected highest-performance core or independent-multi-worker execution on all present cores, without core/cluster selectors for these new tests. Keep 700 ms warm-up and 3-second measurement, full reference checks outside timing, and cancellation-safe partial results.
+- Add a collapsible CPU-page section with separate units, per-worker input size, method version and affinity fallback notices; reuse global run ownership and background-stop rules.
+- 新增可选 CPU 应用型负载：65,536 键 `std::sort`、固定结构 ASCII JSON 记录解析、1024×1024 灰度 Sobel 滤镜，分别报告 Mkeys/s、MB/s、MPix/s，不生成综合分数，不改变原 CPU 主分数。
+- 新增子项的单 worker 自动选择检测到的最高性能核，多 worker 自动使用全部 present 核心，不提供核心/簇选择，不受旧卡片选择影响；预热 700 ms、测量 3 秒，计时外完整参考校验，停止后保留已验证的部分结果。
+- CPU 页面新增可折叠入口，单位单独排布，显示每 worker 输入规模、方法版本与亲和性回退；复用全局互斥和后台停止规则。
+
+### Fixed
+
+- Correct GPU output-ring addressing in the 8-chain FP32/FP16, INT32 and mixed shaders. Bound the mixed shader's final integer-to-float contribution to prevent NaN/Inf outputs.
+- Validate every available FP variant and sampled results in every written output region outside the measured interval. Use scalar CPU references for FP/INT/memory, and explicitly separate bounded, same-device repeatability checks for mixed compute. Invalid output clears the active provisional result.
+- Publish CPU worker checksums atomically; the existing CPU workload and scoring formula are unchanged.
+- Validate completed GPU batches even when stopped; clear the requested test's stale value at restart, and associate allocation errors with the correct active item.
+- 修复 8 路 FP32/FP16、INT32、Mixed Shader 的输出环形区域寻址；限制 Mixed 最终位转换的范围，避免 NaN/Inf。
+- 在计时外校验全部可用浮点变体，以及每个已写输出区的采样结果；FP/INT/Memory 使用独立 CPU 参考，Mixed 明确采用数值边界与同设备重复性验证。无效输出不保留当前项目的临时成绩。
+- CPU worker 校验值改为原子发布；原 CPU 工作负载和计分公式不变。
+- GPU 中途停止也会校验已完成批次；重启清除本轮旧分数，分配失败准确归属当前项目。
+
+### Changed
+
+- Identify the corrected GPU method as `gpu-throughput-v2`. Compare GPU results only within the same method; this does not establish the cause of historical results on untested GPU drivers.
+- GPU 方法标识更新为 `gpu-throughput-v2`。GPU 成绩应在同一方法版本内比较；本次修复不能证明未实测驱动上的历史异常分数根因。
+- Set Android version to `1.1.0-beta.6` / `4020`. Memory/Storage algorithms, existing score units, published FFI layouts and dependencies are unchanged. The new CPU API is additive.
+- Android 版本更新为 `1.1.0-beta.6` / `4020`。Memory/Storage 算法、已有分数单位、已发布 FFI 结构与依赖不变，新 CPU API 为增量接口。
+- The four-stage improvement plan is not complete: memory latency/scale sweeps, unified run metadata/export and sustained/repeated statistics remain future work.
+- 四阶段计划尚未全部完成：内存延迟/规模扫描、统一运行条件/导出、持续/重复测试统计仍未实现。
+
 ## [1.0.4-beta.5] - 2026-09-08
 
 ### Fixed
@@ -82,7 +113,8 @@ Real-device validation was completed on a PJZ110 with Snapdragon 8 Elite and Adr
 
 本版本已在搭载骁龙 8 Elite 和 Adreno 830 的 PJZ110 上完成真机验证。由于暂时没有对应设备，玄戒 O1、Exynos 2600、骁龙 865、麒麟 990 和麒麟 980 仅完成了拓扑及计时路径模拟验证，没有将其描述为真机实测。
 
-[Unreleased]: https://github.com/OIRANGEISHA/Rapidbench/compare/v1.0.4-beta.5...HEAD
+[Unreleased]: https://github.com/OIRANGEISHA/Rapidbench/compare/v1.1.0-beta.6...HEAD
+[1.1.0-beta.6]: https://github.com/OIRANGEISHA/Rapidbench/compare/v1.0.4-beta.5...v1.1.0-beta.6
 [1.0.4-beta.5]: https://github.com/OIRANGEISHA/Rapidbench/compare/v1.0.3-beta.4...v1.0.4-beta.5
 [1.0.3-beta.4]: https://github.com/OIRANGEISHA/Rapidbench/compare/v1.0.2-beta.3...v1.0.3-beta.4
 [1.0.2-beta.3]: https://github.com/OIRANGEISHA/Rapidbench/compare/v1.0.1-beta.2...v1.0.2-beta.3

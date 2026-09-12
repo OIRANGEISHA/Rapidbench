@@ -2,7 +2,7 @@
 
 [简体中文](README.zh-CN.md)
 
-Current release channel: **1.0.4 Beta 5 / Preview**.
+Current release channel: **1.1.0 Beta 6 / Preview**.
 
 RapidBench is a native Android benchmark for a quick assessment of device performance and a compact overview of CPU and GPU capability support. It combines short, repeatable CPU, memory, storage, and Vulkan compute tests with hardware topology, Arm ISA, and Vulkan feature reporting.
 
@@ -12,7 +12,7 @@ It is intended for fast device checks, tuning comparisons, and regression testin
 
 | Area | Tests and information |
 | --- | --- |
-| CPU | Selectable single core, dynamically detected multi-core clusters or all cores, sustained and peak score, affinity checks, utilization, and per-cluster peak frequency |
+| CPU | Legacy selectable-core/cluster score with sustained/peak results, affinity and frequency checks; optional Sort, JSON Records and Image Filter throughput with automatic Single/All-core execution |
 | Memory | Multi-thread read, write, and bidirectional-traffic system `memcpy()` bandwidth |
 | Storage | Sequential read/write, 4 KiB Q1T1, 4 KiB Q8T1, 4 KiB Q1T4, SQLite insert, update, and delete |
 | GPU | Vulkan FP32, native or emulated FP16, INT32, mixed compute, and GPU memory bandwidth |
@@ -51,6 +51,38 @@ Flutter UI
 
 The CPU number is meaningful only within the same RapidBench workload version. It is not a synthetic conversion to another benchmark's score.
 
+#### Optional application workloads (introduced in Beta 6)
+
+An expandable section below the existing CPU controls offers three independent
+tests. It does not alter the legacy CPU score or its automatic single/multi sequence.
+
+| Workload | Measured work and unit | Untimed reference |
+| --- | --- | --- |
+| Sort | Reset and `std::sort` 65,536 deterministic uint32 keys; Mkeys/s | Four-pass radix sort, full-array comparison |
+| JSON records | Parse 8,192 records / 573,048 input bytes; decimal MB/s | Corpus-generated row counts, numeric totals and name hash |
+| Image filter | Integer 3×3 Sobel on 1024×1024 grayscale; MPix/s including zeroed border pixels | Independent scalar convolution, full-image comparison |
+
+JSON is a fixed, ordered `id/value/active/name` ASCII schema with unsigned integers,
+booleans and unescaped strings, not a general-purpose JSON parser benchmark.
+Sobel uses clamped `abs(Gx) + abs(Gy)`; it does not measure image decoding, a camera
+pipeline or GPU rendering. Inputs are deterministic and reused per pass.
+
+Each test warms up for 700 ms and measures for 3 seconds. Final throughput is the
+sum of completed input units divided by wall time from the common start through
+the last worker's actual completion. Preparation, thread creation, full result
+verification and teardown are excluded; an overrun is not truncated to 3 seconds.
+The displayed input size is per worker, not total allocation. Sorting includes its
+input reset; allocation and corpus/reference generation happen before timing.
+
+Single automatically targets the detected highest-performance core (capacity,
+then maximum frequency); Multi uses every present core with one independent job
+per worker. These new tests have no core/cluster selector and ignore the legacy
+CPU selectors, which remain available for the original CPU score. This is throughput, **not shared-task
+parallel speedup**. Affinity fallback remains visible. Results use method
+`cpu-application-v1`; stopped validated results are explicitly partial. The tests
+broaden workload coverage but are not a calibrated overall SoC score. See
+[method and validation notes](docs/cpu-application-method.md).
+
 ### Memory algorithm
 
 - The engine uses all currently allowed CPUs and divides aligned buffers into independent regions per worker.
@@ -65,20 +97,32 @@ The CPU number is meaningful only within the same RapidBench workload version. I
 - Tests operate on a prepared file in Android app-private storage. RapidBench tries `O_DIRECT` with aligned buffers and reports when it must use a buffered fallback. Cache-drop advice is issued where available.
 - Sequential tests use 1 MiB blocks at QD8 (one Linux AIO submitting thread) in Direct I/O mode; their Buffered compatibility fallback uses Q1T1. Random tests use 4 KiB blocks in deterministic shuffled order.
 - Q1T1 performs synchronous pread/pwrite operations. Q8T1 uses native Linux AIO with eight requests kept outstanding and validates that queue depth 8 was actually reached. Q1T4 uses four native worker threads over separate file regions.
-- Write tests flush with `fdatasync()` after the timed phase; flush time is reported separately from throughput.
+- Write tests flush with `fdatasync()` after the timed phase; flush latency is excluded from throughput but is not yet retained as a separate result field.
 - SQLite tests use an indexed table and a 512-byte payload. Insert, update, and delete operations use prepared statements and 500-row immediate transactions. Update changes the timestamp, indexed value, text, and payload of deterministically shuffled rows; delete order is also shuffled deterministically.
-- Storage tests use a 750 ms warm-up and a 3-second measurement by default.
+- File I/O tests use a 750 ms warm-up and a 3-second measurement by default. SQLite uses WAL/NORMAL transactions; Insert and Delete may finish earlier at their 100,000/50,000-row caps, while Update targets 3 seconds.
 - 4 KiB Q8T1 is reported unavailable when Direct AIO is unavailable; it is not silently substituted with a Q1T1 measurement.
 
 ### GPU algorithm
 
 - RapidBench loads Vulkan dynamically, selects a compute-capable queue, and prefers a queue with timestamps and without graphics duties when available.
-- Compute dispatches use 1,024 workgroups of 64 invocations. FP shaders run 64 iterations over independent `vec4` accumulator chains.
+- Compute dispatches use 1,024 workgroups of 64 invocations. FP shaders run 64 iterations over eight coupled or 12/16 independent vector accumulator chains.
 - FP32, native FP16, and emulated FP16 provide 8-, 12-, and 16-accumulator variants. During warm-up, RapidBench measures available variants in forward and reverse order and selects the highest-throughput version for that GPU. No Adreno, Mali, Xclipse, PowerVR, or other vendor-name whitelist is used.
 - The 12- and 16-accumulator pipelines are optional. If a driver rejects them, the test falls back to the required 8-accumulator pipeline. Native FP16 is enabled only when Vulkan reports `shaderFloat16`; otherwise the compatible emulated path is used.
 - A 16-region output ring lets consecutive dispatches write independent ranges. A compute barrier is inserted only before a region is reused, reducing unnecessary dispatch serialization while preserving correctness.
 - FLOPS/GOPS are derived from the exact operation count of the selected shader. Supported GPU timestamps are accepted only when they remain plausible against the independently measured host fence duration; invalid or implausible samples use the declared host-timing fallback.
 - Each GPU item measures for approximately 6 seconds after a 700 ms warm-up.
+
+Beta 6 uses GPU method `gpu-throughput-v2`: output-ring addressing
+is corrected for every compute shader, and mixed output conversion is bounded.
+Before timing, every available FP variant is checked against an independent scalar
+reference; after timing, eight invocations are sampled in every written output
+region (all four lanes for compute). FP16 checks allow rounding differences. Mixed
+compute instead checks finite mathematical bounds and same-device repeatability,
+not a cross-driver bit-exact CPU oracle. Readback and validation are outside the
+measurement; invalid output does not produce a valid result. This is sampled
+correctness coverage, not proof of every invocation or a GPU validation-layer run.
+Compare GPU results within the same method version; do not directly compare the
+corrected Beta 6 GPU results with older methods. Historical Beta 5 assets remain unchanged.
 
 ### Device capability reporting
 

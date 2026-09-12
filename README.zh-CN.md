@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-当前发布通道：**1.0.4 Beta 5 / Preview 预览版**。
+当前发布通道：**1.1.0 Beta 6 / Preview 预览版**。
 
 RapidBench 是一款原生 Android 性能测试工具，用于快速评估设备性能，并集中查看 CPU、GPU 的特性支持情况。它提供时间较短且可重复的 CPU、内存、存储和 Vulkan Compute 测试，同时展示 CPU 拓扑、Arm ISA 和 Vulkan 能力。
 
@@ -12,7 +12,7 @@ RapidBench 是一款原生 Android 性能测试工具，用于快速评估设备
 
 | 模块 | 测试和信息 |
 | --- | --- |
-| CPU | 可选核心的单核测试、动态识别 CPU 簇或全核心的多核测试、持续/峰值分数、亲和性检查、占用率和各簇峰值频率 |
+| CPU | 保留可选核心/簇的原单多核分数、持续/峰值与亲和性/频率信息；新增排序、JSON 记录解析和图像滤镜吞吐，自动单核/全核运行 |
 | 内存 | 多线程读取、写入以及按双向流量统计的系统 `memcpy()` 带宽 |
 | 存储 | 顺序读写、4 KiB Q1T1、4 KiB Q8T1、4 KiB Q1T4、SQLite Insert、Update 和 Delete |
 | GPU | Vulkan FP32、原生或模拟 FP16、INT32、Mixed Compute 和 GPU 内存带宽 |
@@ -48,6 +48,30 @@ Flutter UI
 
 CPU 分数只适合在相同 RapidBench 工作负载版本之间比较，不是对其他跑分软件分数的换算。
 
+#### 可选应用型负载（Beta 6 新增）
+
+原 CPU 控制按钮下新增可展开区域，三项测试分别运行，不改变原主分数和单/多核自动测试顺序。
+
+| 负载 | 计入测量的工作与单位 | 计时外参考校验 |
+| --- | --- | --- |
+| Sort | 重置并用 `std::sort` 排序 65,536 个确定性 uint32 键，Mkeys/s | 独立四轮基数排序，比较全部键 |
+| JSON Records | 解析 8,192 条记录 / 573,048 字节输入，十进制 MB/s | 根据构造输入生成行数、数值总和及名字哈希参考 |
+| Image Filter | 1024×1024 灰度图的整数 3×3 Sobel，MPix/s，包含清零的边界像素 | 独立标量卷积，比较整幅图像 |
+
+JSON 是固定有序 `id/value/active/name` ASCII schema，只含无符号整数、布尔和无转义字符串，
+不代表通用 JSON 库性能。Sobel 使用截断到 255 的 `abs(Gx) + abs(Gy)`，不代表图像解码、
+相机管线或 GPU 渲染。各轮重复使用确定性输入。
+
+每项预热 700 ms、测量 3 秒。最终吞吐等于全部已完成输入单元除以从共同开始时刻到最后一个
+worker 实际完成的墙钟时间；准备、线程创建、完整参考校验和销毁不计入，末批超时不会截断到
+3 秒。界面显示每个 worker 的输入规模，不是总分配内存。排序计入输入重置，分配和构造参考不计时。
+
+Single 自动选择检测到的最高性能核（优先 capacity，再比较最大频率）；Multi 使用全部 present
+核心，每核一个独立 worker。新增子项没有核心/簇选择，也不受旧分数卡片的选择影响；旧选择功能保留。
+这属于独立任务吞吐，不是共享任务的协作加速比；亲和性回退仍会显示。方法标识为
+`cpu-application-v1`，停止后的有效结果明确标为 Partial。这些子项扩大了负载覆盖面，
+但不是已校准的 SoC 综合分数。详见[方法与验证记录](docs/cpu-application-method.md)。
+
 ### 内存算法
 
 - 引擎使用当前允许使用的全部 CPU，并为每个 worker 分配互不重叠的对齐缓冲区区域。
@@ -62,20 +86,27 @@ CPU 分数只适合在相同 RapidBench 工作负载版本之间比较，不是�
 - 测试文件建立在 Android 应用私有目录中。RapidBench 会优先尝试使用对齐缓冲区和 `O_DIRECT`，不可用时明确回退到 Buffered I/O，并在系统支持时发出丢弃缓存建议。
 - 顺序测试使用 1 MiB 块，Direct I/O 路径使用 QD8 和一个 Linux AIO 提交线程；Buffered 兼容回退路径使用 Q1T1。随机测试使用确定性打乱顺序的 4 KiB 块。
 - Q1T1 使用同步 pread/pwrite；Q8T1 使用原生 Linux AIO，持续保持 8 个请求在途，并验证实际达到 QD8；Q1T4 使用 4 个原生线程在独立文件区域工作。
-- 写入测试在计时阶段后执行 `fdatasync()`，Flush 时间与吞吐分开记录。
+- 写入测试在计时阶段后执行 `fdatasync()`，Flush 延迟不计入吞吐，但目前尚未作为独立结果字段保留。
 - SQLite 测试使用带索引的数据表和 512 字节 payload。Insert、Update、Delete 均复用预编译语句，并采用每 500 行一次的 Immediate Transaction；Update 会按确定性打乱的行顺序更新 timestamp、索引值、文本和 payload，Delete 顺序同样采用确定性打乱。
-- Storage 默认预热 750 ms，正式测量 3 秒。
+- 文件 I/O 默认预热 750 ms、正式测量 3 秒。SQLite 使用 WAL/NORMAL；Insert 和 Delete 达到 100,000/50,000 行上限时可能提前结束，Update 目标为 3 秒。
 - Direct AIO 不可用时，4 KiB Q8T1 会明确显示不可用，不会悄悄改用 Q1T1 的结果。
 
 ### GPU 算法
 
 - RapidBench 动态加载 Vulkan，选择支持 Compute 的队列；存在多个候选时，优先选择支持 Timestamp 且不承担 Graphics 的队列。
-- Compute 使用 1,024 个 workgroup，每组 64 个 invocation。FP Shader 对多条独立的 `vec4` 累加链执行 64 次迭代。
+- Compute 使用 1,024 个 workgroup，每组 64 个 invocation。FP Shader 对 8 条相互耦合、或 12/16 条独立的向量累加链执行 64 次迭代。
 - FP32、原生 FP16 和模拟 FP16 都提供 8、12、16 条累加链变体。预热期间，RapidBench 按正序和逆序实测可用变体，并选择当前 GPU 上实际吞吐最高的版本。代码不包含 Adreno、Mali、Xclipse、PowerVR 或其他 GPU 品牌白名单。
 - 12/16 路管线属于可选优化；驱动拒绝创建时会退回必需的 8 路管线。只有 Vulkan 报告 `shaderFloat16` 后才运行原生 FP16，否则使用兼容模拟路径。
 - 16 区输出环形缓冲让连续 dispatch 写入不同区域，仅在区域即将复用时插入 Compute Barrier，从而减少不必要的串行等待，同时维持正确性。
 - FLOPS/GOPS 按所选 Shader 的实际操作数计算。GPU Timestamp 只有在与独立测得的 Host Fence 时间保持合理一致时才会采用；无效或明显异常的样本会回退到已标记的 Host Timing。
 - 每个 GPU 项目预热约 700 ms，正式测量约 6 秒。
+
+Beta 6 使用 `gpu-throughput-v2` 方法：修正全部 Compute Shader 的输出环形区域寻址，
+并限制 Mixed 输出位转换的数值范围。计时前逐一校验全部可用浮点变体；计时后在每个实际写入的
+输出区采样 8 个 invocation（Compute 检查其全部 4 个分量）。FP16 允许舍入差异；Mixed 使用
+有限数值边界及同设备重复性验证，不宣称跨驱动位精确 CPU oracle。回读与校验均不计入测量，
+错误输出不生成有效成绩。这是采样正确性验证，不是逐一验证全部 invocation，也不是 Vulkan
+Validation Layer 测试。GPU 成绩应在同一方法版本内比较，不要直接对比 Beta 6 与旧方法的 GPU 成绩；历史 Beta 5 资产保持不变。
 
 ### 设备特性检测
 
