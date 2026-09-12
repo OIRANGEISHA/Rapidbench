@@ -51,3 +51,24 @@ target_compile_features(memory_engine_test PRIVATE cxx_std_17)
 target_link_libraries(memory_engine_test PRIVATE benchmark_core)
 add_test(NAME memory_engine_test COMMAND memory_engine_test)
 
+add_executable(gpu_validation_test gpu_validation_test.cpp)
+target_compile_features(gpu_validation_test PRIVATE cxx_std_17)
+target_link_libraries(gpu_validation_test PRIVATE benchmark_core)
+add_test(NAME gpu_validation_test COMMAND gpu_validation_test)
+
+add_executable(cpu_publication_test cpu_publication_test.cpp)
+target_compile_features(cpu_publication_test PRIVATE cxx_std_17)
+target_link_libraries(cpu_publication_test PRIVATE benchmark_core)
+add_test(NAME cpu_publication_test COMMAND cpu_publication_test)
+
+add_test(NAME gpu_shader_contract_test COMMAND ${CMAKE_COMMAND}
+  -DSHADER_DIR=${CMAKE_CURRENT_SOURCE_DIR}/../gpu/shaders
+  -P ${CMAKE_CURRENT_SOURCE_DIR}/gpu_shader_contract_test.cmake)
+
+if(ANDROID)
+  add_executable(gpu_device_smoke gpu_device_smoke.cpp)
+  target_compile_features(gpu_device_smoke PRIVATE cxx_std_17)
+  target_link_libraries(gpu_device_smoke PRIVATE benchmark_ffi)
+  add_test(NAME gpu_device_smoke COMMAND gpu_device_smoke)
+endif()
+

@@ -62,7 +62,8 @@ bool Start(bm_gpu_engine_handle engine, std::uint32_t test,
 
 } // namespace
 
-int main() {
+int main(int argc, char **argv) {
+  const bool full = argc > 1 && std::strcmp(argv[1], "--full") == 0;
   bm_gpu_engine_handle engine = nullptr;
   if (bm_gpu_engine_create(&engine) != BM_STATUS_OK || engine == nullptr) {
     std::fprintf(stderr, "engine_create_failed\n");
@@ -88,7 +89,8 @@ int main() {
 
   std::uint64_t run_id = 0U;
   bm_gpu_snapshot_v1 snapshot{};
-  if (!Start(engine, BM_GPU_TEST_FP32, 700U, 200U, &run_id) ||
+  if (!Start(engine, BM_GPU_TEST_FP32, full ? 6000U : 700U,
+             full ? 700U : 200U, &run_id) ||
       !WaitForTerminal(engine, &snapshot, std::chrono::seconds(15))) {
     std::fprintf(stderr, "fp32_timeout_or_start_failed\n");
     bm_gpu_engine_destroy(engine);
@@ -101,11 +103,23 @@ int main() {
     return 5;
   }
 
-  if (!Start(engine, BM_GPU_TEST_ALL, 700U, 150U, &run_id)) {
+  if (!Start(engine, BM_GPU_TEST_ALL, 10000U, 150U, &run_id)) {
     bm_gpu_engine_destroy(engine);
     return 6;
   }
-  std::this_thread::sleep_for(std::chrono::milliseconds(900));
+  const auto measure_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
+  do {
+    if (!ReadSnapshot(engine, &snapshot) || snapshot.state == BM_GPU_STATE_ERROR) {
+      bm_gpu_engine_destroy(engine);
+      return 7;
+    }
+    if (snapshot.state == BM_GPU_STATE_RUNNING && snapshot.fp32_gflops > 0.0) break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  } while (std::chrono::steady_clock::now() < measure_deadline);
+  if (snapshot.fp32_gflops <= 0.0 || snapshot.fp16_gflops != 0.0) {
+    bm_gpu_engine_destroy(engine);
+    return 7;
+  }
   if (bm_gpu_request_stop(engine, run_id) != BM_STATUS_OK ||
       !WaitForTerminal(engine, &snapshot, std::chrono::seconds(15))) {
     std::fprintf(stderr, "stop_failed\n");
@@ -118,8 +132,20 @@ int main() {
     return 8;
   }
 
-  if (!Start(engine, BM_GPU_TEST_ALL, 500U, 100U, &run_id) ||
-      !WaitForTerminal(engine, &snapshot, std::chrono::seconds(45))) {
+  // A new run stopped during preparation must not reuse any old score.
+  if (!Start(engine, BM_GPU_TEST_FP32, 10000U, 1500U, &run_id) ||
+      bm_gpu_request_stop(engine, run_id) != BM_STATUS_OK ||
+      !WaitForTerminal(engine, &snapshot, std::chrono::seconds(15)) ||
+      snapshot.state != BM_GPU_STATE_STOPPED || snapshot.fp32_gflops != 0.0) {
+    std::fprintf(stderr, "preparation_stop_or_stale_score_failed\n");
+    bm_gpu_engine_destroy(engine);
+    return 8;
+  }
+  PrintSnapshot("PREP_STOP", snapshot);
+
+  if (!Start(engine, BM_GPU_TEST_ALL, full ? 6000U : 500U,
+             full ? 700U : 100U, &run_id) ||
+      !WaitForTerminal(engine, &snapshot, std::chrono::seconds(60))) {
     std::fprintf(stderr, "full_timeout_or_start_failed\n");
     bm_gpu_engine_destroy(engine);
     return 9;

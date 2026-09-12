@@ -119,7 +119,9 @@ struct WorkerContext {
   std::atomic<bool> affinity_violated{false};
   std::atomic<bool> affinity_ok{false};
   std::atomic<bool> performance_request_ok{false};
-  std::uint64_t checksum = 0;
+  // Snapshots can overlap the final worker publication. No other data is
+  // published through this independent diagnostic value.
+  std::atomic<std::uint64_t> checksum{0};
 };
 
 struct SharedRun {
@@ -213,7 +215,8 @@ Totals ReadTotals(const std::vector<std::unique_ptr<WorkerContext>> &contexts) {
         context->thread_cpu_time_ns.load(std::memory_order_acquire);
     totals.affinity_checks +=
         context->affinity_checks.load(std::memory_order_acquire);
-    totals.checksum ^= context->checksum + context->logical_cpu;
+    totals.checksum ^=
+        context->checksum.load(std::memory_order_relaxed) + context->logical_cpu;
   }
   return totals;
 }
@@ -328,7 +331,7 @@ void RunWorker(WorkerContext *context, SharedRun *shared,
              stop_requested->load(std::memory_order_acquire);
     });
     if (stop_requested->load(std::memory_order_acquire)) {
-      context->checksum = workload.checksum;
+      context->checksum.store(workload.checksum, std::memory_order_relaxed);
       return;
     }
     measurement_start = shared->measurement_start;
@@ -381,7 +384,7 @@ void RunWorker(WorkerContext *context, SharedRun *shared,
   if (context->affinity_ok.load(std::memory_order_acquire)) {
     CheckWorkerCpu(context);
   }
-  context->checksum = workload.checksum;
+  context->checksum.store(workload.checksum, std::memory_order_relaxed);
 
   {
     std::lock_guard<std::mutex> lock(shared->mutex);

@@ -39,6 +39,6 @@ void main() {
     a7 = (a7 + a3) ^ (a6 >> uvec4(13u));
   }
 
-  output_buffer.values[index] =
+  output_buffer.values[parameters.output_offset + index] =
       (a0 ^ a1) + (a2 ^ a3) + (a4 ^ a5) + (a6 ^ a7);
 }

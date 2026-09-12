@@ -3,6 +3,7 @@ set(BENCHMARK_CORE_SOURCES
   src/device_cpu_isa.cpp
   src/engine.cpp
   src/gpu_timing.cpp
+  src/gpu_validation.cpp
   src/memory_engine.cpp
   src/memory_frequency.cpp
   src/memory_kernels.cpp

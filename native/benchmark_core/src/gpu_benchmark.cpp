@@ -1,5 +1,6 @@
 #include "benchmark/gpu_benchmark.h"
 #include "benchmark/gpu_timing.h"
+#include "benchmark/gpu_validation.h"
 
 #include <algorithm>
 #include <array>
@@ -8,6 +9,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <dlfcn.h>
 #include <limits>
@@ -57,10 +59,9 @@ constexpr std::uint32_t kWorkgroupSize = 64U;
 constexpr std::uint32_t kComputeWorkgroups = 1024U;
 constexpr std::uint32_t kComputeIterations = 64U;
 constexpr std::uint32_t kMemoryLoadsPerInvocation = 16U;
-constexpr std::uint64_t kIntOperationsPerInvocation = 5632ULL;
-constexpr std::uint64_t kMixedWorkPerInvocation = 256ULL;
-constexpr std::uint64_t kComputeRegionBytes = 1024ULL * 1024ULL;
-constexpr std::uint32_t kComputeOutputRegions = 16U;
+constexpr std::uint64_t kComputeRegionBytes = detail::kGpuRegionBytes;
+constexpr std::uint32_t kComputeOutputRegions = detail::kGpuOutputRegions;
+static_assert(kComputeWorkgroups * kWorkgroupSize == detail::kGpuComputeInvocations);
 constexpr std::uint64_t kComputeOutputBytes =
     kComputeRegionBytes * kComputeOutputRegions;
 constexpr std::uint32_t kFpAutotuneRepetitions = 2U;
@@ -570,6 +571,8 @@ public:
            << ",\"fpAutotune\":true"
            << ",\"fpAccumulatorVariants\":[8,12,16]"
            << ",\"computeOutputRegions\":" << kComputeOutputRegions
+           << ",\"workloadMethod\":\"gpu-throughput-v2\""
+           << ",\"resultValidation\":\"CPU_REFERENCE_AND_MIXED_REPEATABILITY\""
            << ",\"timingMode\":\""
            << (timestamp_available() ? "GPU_TIMESTAMP" : "HOST_FALLBACK")
            << "\",\"maxStorageBufferRange\":"
@@ -686,9 +689,8 @@ public:
         parameters.second =
             ((ring_index + repetition) % 4U) * quarter;
       } else {
-        parameters.first =
-            (((ring_index * 7U) + repetition) % kComputeOutputRegions) *
-            kComputeInvocations;
+        parameters.first = detail::GpuOutputRegion(ring_index, repetition) *
+                           kComputeInvocations;
       }
       functions_.CmdPushConstants(command_buffer_, pipeline_layout_,
                                   VK_SHADER_STAGE_COMPUTE_BIT, 0U,
@@ -780,16 +782,55 @@ public:
     return result;
   }
 
-  bool ValidateSink(GpuTest test) {
-    const BufferResource &output =
-        test == GpuTest::kMemoryBandwidth ? memory_output_ : compute_output_;
+  bool ClearSink(GpuTest test) {
+    return InitializeBuffer(test == GpuTest::kMemoryBandwidth ? memory_output_
+                                                              : compute_output_,
+                            true);
+  }
+
+  bool ValidateWorkload(GpuTest test, std::uint32_t fp_variant,
+                        detail::GpuMixedReference *mixed_reference,
+                        std::string *error) {
+    if (!ClearSink(test)) {
+      *error = "Unable to clear GPU output before validation";
+      return false;
+    }
+    const bool memory = test == GpuTest::kMemoryBandwidth;
+    // Two complete laps expose missing offsets and ring-reuse synchronization.
+    const auto batch = ExecuteBatch(test, memory ? 1U : 32U, 0U, fp_variant);
+    if (!batch.ok) {
+      *error = batch.error;
+      return false;
+    }
+    detail::GpuValidationRequest request;
+    request.test = test;
+    request.fp_accumulators = kFpAccumulatorCounts[fp_variant];
+    request.native_fp16 = shader_float16_;
+    request.written_regions = 0xFFFFU;
+    request.memory_input_bytes = memory_input_.size;
+    return ValidateSink(request, mixed_reference, test == GpuTest::kMixed,
+                        error);
+  }
+
+  bool ValidateSink(const detail::GpuValidationRequest &request,
+                    detail::GpuMixedReference *mixed_reference,
+                    bool capture_mixed, std::string *error) {
+    // A fence waits for execution; explicitly make shader writes visible to
+    // host reads as well. This separate submission is outside the scored batch.
+    if (!MakeWritesVisibleToHost(error))
+      return false;
+    const BufferResource &output = request.test == GpuTest::kMemoryBandwidth
+                                       ? memory_output_
+                                       : compute_output_;
     if (output.memory == VK_NULL_HANDLE) {
+      *error = "GPU validation output is unavailable";
       return false;
     }
     void *mapped = nullptr;
     if (functions_.MapMemory(device_, output.memory, 0U, output.size, 0U,
                              &mapped) != VK_SUCCESS ||
         mapped == nullptr) {
+      *error = "Unable to map GPU validation output";
       return false;
     }
     if ((output.properties & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) == 0U) {
@@ -797,28 +838,75 @@ public:
       range.memory = output.memory;
       range.offset = 0U;
       range.size = VK_WHOLE_SIZE;
-      functions_.InvalidateMappedMemoryRanges(device_, 1U, &range);
-    }
-    bool valid = false;
-    if (test == GpuTest::kInt32) {
-      const auto *values = static_cast<const std::uint32_t *>(mapped);
-      for (std::size_t index = 0; index < 16U; ++index) {
-        valid = valid || values[index] != 0U;
-      }
-    } else {
-      const auto *values = static_cast<const float *>(mapped);
-      for (std::size_t index = 0; index < 16U; ++index) {
-        if (std::isfinite(values[index]) && values[index] != 0.0F) {
-          valid = true;
-          break;
-        }
+      if (functions_.InvalidateMappedMemoryRanges(device_, 1U, &range) !=
+          VK_SUCCESS) {
+        functions_.UnmapMemory(device_, output.memory);
+        *error = "Unable to invalidate GPU validation output";
+        return false;
       }
     }
+    detail::GpuValidationResult validation;
+    if (capture_mixed) {
+      validation = detail::CaptureGpuMixedReference(mapped, output.size,
+                                                    mixed_reference);
+      if (!validation.valid) {
+        functions_.UnmapMemory(device_, output.memory);
+        *error = validation.error;
+        return false;
+      }
+    }
+    validation = detail::ValidateGpuOutput(
+        mapped, output.size, request,
+        request.test == GpuTest::kMixed ? mixed_reference : nullptr);
     functions_.UnmapMemory(device_, output.memory);
-    return valid;
+    std::fprintf(
+        stderr,
+        "RapidBench GPU validation test=%u accumulators=%u nativeHalf=%u "
+        "regions=0x%x checked=%zu valid=%u\n",
+        static_cast<std::uint32_t>(request.test), request.fp_accumulators,
+        request.test == GpuTest::kFp16 && request.native_fp16 ? 1U : 0U,
+        request.written_regions, validation.checked_values,
+        validation.valid ? 1U : 0U);
+    if (!validation.valid)
+      *error = validation.error;
+    return validation.valid;
   }
 
 private:
+  bool MakeWritesVisibleToHost(std::string *error) {
+    const auto fail = [&]() {
+      *error = "GPU output readback synchronization failed";
+      return false;
+    };
+    if (functions_.ResetCommandPool(device_, command_pool_, 0U) != VK_SUCCESS)
+      return fail();
+    VkCommandBufferBeginInfo begin{};
+    begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    if (functions_.BeginCommandBuffer(command_buffer_, &begin) != VK_SUCCESS)
+      return fail();
+    VkMemoryBarrier barrier{};
+    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+    functions_.CmdPipelineBarrier(
+        command_buffer_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        VK_PIPELINE_STAGE_HOST_BIT, 0U, 1U, &barrier, 0U, nullptr, 0U, nullptr);
+    if (functions_.EndCommandBuffer(command_buffer_) != VK_SUCCESS ||
+        functions_.ResetFences(device_, 1U, &fence_) != VK_SUCCESS)
+      return fail();
+    VkSubmitInfo submit{};
+    submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submit.commandBufferCount = 1U;
+    submit.pCommandBuffers = &command_buffer_;
+    if (functions_.QueueSubmit(queue_, 1U, &submit, fence_) != VK_SUCCESS ||
+        functions_.WaitForFences(device_, 1U, &fence_, VK_TRUE,
+                                 kFenceTimeoutNs) != VK_SUCCESS) {
+      return fail();
+    }
+    return true;
+  }
+
   static bool Fail(const std::string &message, std::int32_t code,
                    std::string *error, std::int32_t *error_code) {
     *error = message;
@@ -1109,9 +1197,7 @@ private:
       const std::size_t word_count =
           static_cast<std::size_t>(resource.size / sizeof(std::uint32_t));
       for (std::size_t index = 0; index < word_count; ++index) {
-        words[index] = 0x3E800000U +
-                       static_cast<std::uint32_t>((index * 2654435761ULL) &
-                                                  0x000FFFFFU);
+        words[index] = detail::GpuInputWord(index);
       }
     }
     if ((resource.properties & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) == 0U) {
@@ -1280,19 +1366,11 @@ double WorkAmount(GpuTest test, std::uint32_t repetitions,
       static_cast<std::uint64_t>(kComputeWorkgroups) * kWorkgroupSize;
   switch (test) {
   case GpuTest::kFp32:
-  case GpuTest::kFp16: {
-    const std::uint64_t fp_operations_per_invocation =
-        static_cast<std::uint64_t>(fp_accumulators) * 4ULL * 2ULL *
-        kComputeIterations;
-    return static_cast<double>(invocations) *
-           static_cast<double>(fp_operations_per_invocation) * repetitions;
-  }
+  case GpuTest::kFp16:
   case GpuTest::kInt32:
-    return static_cast<double>(invocations) *
-           static_cast<double>(kIntOperationsPerInvocation) * repetitions;
   case GpuTest::kMixed:
     return static_cast<double>(invocations) *
-           static_cast<double>(kMixedWorkPerInvocation) * repetitions;
+           static_cast<double>(detail::GpuOperationsPerInvocation(test, fp_accumulators)) * repetitions;
   case GpuTest::kMemoryBandwidth:
     return static_cast<double>(memory_bytes) * repetitions;
   default:
@@ -1359,6 +1437,14 @@ public:
       snapshot_.active_test = request.test == GpuTest::kAll
                                   ? GpuTest::kFp32
                                   : request.test;
+      if (request.test == GpuTest::kAll) {
+        for (const auto test : {GpuTest::kFp32, GpuTest::kFp16, GpuTest::kInt32,
+                                GpuTest::kMixed, GpuTest::kMemoryBandwidth}) {
+          AssignValue(test, 0.0);
+        }
+      } else {
+        AssignValue(request.test, 0.0);
+      }
       snapshot_.error_code = 0;
       snapshot_.elapsed_ns = 0U;
       snapshot_.progress = 0.0;
@@ -1436,6 +1522,11 @@ private:
   bool RunTest(GpuTest test, const GpuRequest &request, std::uint64_t run_id,
                Clock::time_point run_start, std::size_t sequence_index,
                std::size_t sequence_count) {
+    {
+      std::lock_guard<std::mutex> lock(snapshot_mutex_);
+      snapshot_.active_test = test;
+      AssignValue(test, 0.0);
+    }
     if (test == GpuTest::kMemoryBandwidth) {
       std::string allocation_error;
       if (!context_.EnsureMemoryBandwidthResources(&allocation_error)) {
@@ -1460,6 +1551,22 @@ private:
     std::uint32_t selected_fp_variant = 0U;
     std::uint32_t fp_accumulators = kFpAccumulatorCounts[0];
     const bool is_fp_test = test == GpuTest::kFp32 || test == GpuTest::kFp16;
+    detail::GpuMixedReference mixed_reference{};
+    const std::uint32_t validation_variants = is_fp_test ? kFpVariantCount : 1U;
+    for (std::uint32_t variant = 0U; variant < validation_variants; ++variant) {
+      if (is_fp_test && !context_.IsFpVariantAvailable(test, variant))
+        continue;
+      if (stop_requested_.load(std::memory_order_acquire)) {
+        SetStopped(run_id, run_start);
+        return false;
+      }
+      std::string validation_error;
+      if (!context_.ValidateWorkload(test, variant, &mixed_reference,
+                                     &validation_error)) {
+        SetError(run_id, kErrorInvalidResult, validation_error, run_start);
+        return false;
+      }
+    }
     if (is_fp_test) {
       std::array<double, kFpVariantCount> accumulated_throughput{};
       std::array<std::uint32_t, kFpVariantCount> sample_counts{};
@@ -1526,6 +1633,13 @@ private:
     } while (Clock::now() - warmup_start <
              std::chrono::milliseconds(request.warmup_ms));
 
+    // Warm-up output must not make a missing measured write look successful.
+    if (!context_.ClearSink(test)) {
+      SetError(run_id, kErrorInvalidResult,
+               "Unable to clear GPU output before measurement", run_start);
+      return false;
+    }
+
     {
       std::lock_guard<std::mutex> lock(snapshot_mutex_);
       if (snapshot_.run_id != run_id) {
@@ -1537,29 +1651,38 @@ private:
     const auto measure_start = Clock::now();
     double total_amount = 0.0;
     double total_seconds = 0.0;
+    detail::GpuValidationRequest validation_request;
+    validation_request.test = test;
+    validation_request.fp_accumulators = fp_accumulators;
+    validation_request.native_fp16 = context_.shader_float16();
+    validation_request.memory_input_bytes = context_.memory_buffer_bytes();
     while (Clock::now() - measure_start <
            std::chrono::milliseconds(request.duration_ms)) {
       if (stop_requested_.load(std::memory_order_acquire)) {
-        SetStopped(run_id, run_start);
-        return false;
+        break; // Validate completed batches before preserving a partial score.
       }
-      const BatchResult batch =
-          context_.ExecuteBatch(test, repetitions, ring_index++,
-                                selected_fp_variant);
+      const std::uint32_t batch_ring = ring_index++;
+      const BatchResult batch = context_.ExecuteBatch(
+          test, repetitions, batch_ring, selected_fp_variant);
       if (!batch.ok) {
         SetError(run_id, kErrorSubmission, batch.error, run_start);
         return false;
       }
       total_seconds += batch.seconds;
-      total_amount += WorkAmount(test, repetitions,
-                                 context_.memory_buffer_bytes(), fp_accumulators);
+      validation_request.written_regions |=
+          detail::GpuWrittenRegions(batch_ring, repetitions);
+      validation_request.memory_element_offset = static_cast<std::uint32_t>(
+          ((batch_ring + repetitions - 1U) % 4U) *
+          (validation_request.memory_input_bytes / 16U / 4U));
+      total_amount += WorkAmount(
+          test, repetitions, context_.memory_buffer_bytes(), fp_accumulators);
       const double value = total_amount / total_seconds / 1.0e9;
-      const double test_progress = std::clamp(
-          std::chrono::duration<double, std::milli>(Clock::now() -
-                                                    measure_start)
-                  .count() /
-              static_cast<double>(request.duration_ms),
-          0.0, 1.0);
+      const double test_progress =
+          std::clamp(std::chrono::duration<double, std::milli>(Clock::now() -
+                                                               measure_start)
+                             .count() /
+                         static_cast<double>(request.duration_ms),
+                     0.0, 1.0);
       {
         std::lock_guard<std::mutex> lock(snapshot_mutex_);
         if (snapshot_.run_id != run_id) {
@@ -1573,14 +1696,27 @@ private:
             (static_cast<double>(sequence_index) + test_progress) /
             static_cast<double>(sequence_count);
         snapshot_.elapsed_ns = static_cast<std::uint64_t>(
-            std::chrono::duration_cast<std::chrono::nanoseconds>(
-                Clock::now() - run_start)
+            std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() -
+                                                                 run_start)
                 .count());
       }
     }
-    if (!context_.ValidateSink(test)) {
-      SetError(run_id, kErrorInvalidResult,
-               "GPU shader sink validation failed", run_start);
+    if (total_seconds <= 0.0) {
+      if (stop_requested_.load(std::memory_order_acquire)) {
+        SetStopped(run_id, run_start);
+      } else {
+        SetError(run_id, kErrorInvalidResult, "No completed GPU batch", run_start);
+      }
+      return false;
+    }
+    std::string validation_error;
+    if (!context_.ValidateSink(validation_request, &mixed_reference, false,
+                               &validation_error)) {
+      SetError(run_id, kErrorInvalidResult, validation_error, run_start);
+      return false;
+    }
+    if (stop_requested_.load(std::memory_order_acquire)) {
+      SetStopped(run_id, run_start);
       return false;
     }
     return true;
@@ -1633,6 +1769,8 @@ private:
       return;
     }
     snapshot_.state = GpuState::kError;
+    // A provisional throughput is not a valid result after a failed oracle.
+    AssignValue(snapshot_.active_test, 0.0);
     snapshot_.error_code = code;
     snapshot_.last_error = message;
     snapshot_.elapsed_ns = static_cast<std::uint64_t>(

@@ -35,6 +35,9 @@ void main() {
                (integer0 << uvec4(5u));
   }
 
-  output_buffer.values[index] =
-      fp0 + fp1 + uintBitsToFloat((integer0 ^ integer1) | uvec4(0x3F000000u));
+  // Bound the observable integer contribution to [0.5, 1.0). Random sign and
+  // exponent bits could otherwise turn valid work into NaN or infinity.
+  output_buffer.values[parameters.output_offset + index] =
+      fp0 + fp1 + uintBitsToFloat(((integer0 ^ integer1) &
+                                 uvec4(0x007FFFFFu)) | uvec4(0x3F000000u));
 }
