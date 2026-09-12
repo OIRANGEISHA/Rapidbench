@@ -1,4 +1,5 @@
 add_library(benchmark_ffi SHARED
+  src/cpu_application_ffi.cpp
   src/benchmark_ffi.cpp
   src/device_ffi.cpp
   src/gpu_ffi.cpp

@@ -1,5 +1,8 @@
 library benchmark_native;
 
+export 'src/cpu_application_controller.dart';
+export 'src/cpu_application_models.dart';
+
 export 'src/benchmark_controller.dart';
 export 'src/benchmark_models.dart';
 export 'src/benchmark_run_coordinator.dart';

@@ -1,6 +1,8 @@
 import 'package:benchmark_native/benchmark_native.dart';
 import 'package:flutter/material.dart';
 
+import 'cpu_application_section.dart';
+
 class CpuBenchPage extends StatefulWidget {
   const CpuBenchPage({super.key});
 
@@ -84,7 +86,9 @@ class _BenchBody extends StatelessWidget {
             accentMetric: _affinityMetric(controller.singleResult),
             accentMetricWarning:
                 (controller.singleResult?.affinityFailures ?? 0) > 0,
-            onTap: running ? null : () => _showCpuPicker(context, controller),
+            onTap: controller.canStart
+                ? () => _showCpuPicker(context, controller)
+                : null,
             showPickerIndicator: true,
           ),
           const SizedBox(height: 8),
@@ -105,9 +109,9 @@ class _BenchBody extends StatelessWidget {
                 ? null
                 : 'Scaling '
                     '${controller.multiThreadMultiplier!.toStringAsFixed(2)}×',
-            onTap: running
-                ? null
-                : () => _showMultiGroupPicker(context, controller),
+            onTap: controller.canStart
+                ? () => _showMultiGroupPicker(context, controller)
+                : null,
             showPickerIndicator: true,
           ),
           const SizedBox(height: 20),
@@ -146,7 +150,8 @@ class _BenchBody extends StatelessWidget {
             children: [
               Expanded(
                 child: ElevatedButton(
-                  onPressed: controller.canStart ? controller.startCpuBench : null,
+                  onPressed:
+                      controller.canStart ? controller.startCpuBench : null,
                   child: const Text('BENCH CPU'),
                 ),
               ),
@@ -160,6 +165,8 @@ class _BenchBody extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 26),
+          const CpuApplicationSection(),
+          const SizedBox(height: 16),
           const _SectionLabel('CPU TOPOLOGY'),
           const SizedBox(height: 8),
           _DataRow(

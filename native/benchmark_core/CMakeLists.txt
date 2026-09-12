@@ -1,4 +1,6 @@
 set(BENCHMARK_CORE_SOURCES
+  src/cpu_application_workload.cpp
+  src/cpu_application_engine.cpp
   src/cpu_workload.cpp
   src/device_cpu_isa.cpp
   src/engine.cpp
