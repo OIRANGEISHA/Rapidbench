@@ -129,10 +129,14 @@ final class NativeGpuEngine {
     _read = _library.lookupFunction<_SnapshotNative, _SnapshotDart>(
       'bm_gpu_get_snapshot',
     );
-    _capabilities = _library
-        .lookupFunction<_CapabilitiesNative, _CapabilitiesDart>(
-          'bm_gpu_get_capabilities_json',
-        );
+    _capabilities =
+        _library.lookupFunction<_CapabilitiesNative, _CapabilitiesDart>(
+      'bm_gpu_get_capabilities_json',
+    );
+    _diagnostics =
+        _library.lookupFunction<_CapabilitiesNative, _CapabilitiesDart>(
+      'bm_gpu_get_diagnostics_json',
+    );
     final outEngine = calloc<Pointer<Void>>();
     try {
       _check(_create(outEngine), 'bm_gpu_engine_create');
@@ -150,6 +154,7 @@ final class NativeGpuEngine {
   late final _StopDart _stop;
   late final _SnapshotDart _read;
   late final _CapabilitiesDart _capabilities;
+  late final _CapabilitiesDart _diagnostics;
   late final Pointer<Void> _handle;
   late final Pointer<BmGpuSnapshotV1> _snapshot;
   bool _disposed = false;
@@ -189,6 +194,8 @@ final class NativeGpuEngine {
       ..abiVersion = bmAbiVersion;
     _check(_read(_handle, _snapshot), 'bm_gpu_get_snapshot');
     final native = _snapshot.ref;
+    final diagnostics = _readDiagnostics();
+    final sameRun = diagnostics['runId'] == native.runId;
     return GpuBenchmarkSnapshot(
       runId: native.runId,
       state: GpuBenchmarkState.fromNative(native.state),
@@ -214,6 +221,15 @@ final class NativeGpuEngine {
       dispatchCount: native.dispatchCount,
       iterationCount: native.iterationCount,
       lastError: _decodeError(native.lastError),
+      fatalError: sameRun && diagnostics['fatal'] == true,
+      diagnostics: sameRun
+          ? {
+              for (final entry in (diagnostics['tests'] as Map? ?? {}).entries)
+                int.parse(entry.key.toString()): GpuItemDiagnostics.fromJson(
+                  Map<String, dynamic>.from(entry.value as Map),
+                ),
+            }
+          : const {},
     );
   }
 
@@ -242,6 +258,22 @@ final class NativeGpuEngine {
         calloc.free(buffer);
       }
     } finally {
+      calloc.free(required);
+    }
+  }
+
+  Map<String, dynamic> _readDiagnostics() {
+    // The payload grows during measurement. Avoid a size/read allocation race.
+    final buffer = calloc<Uint8>(16384);
+    final required = calloc<Uint32>();
+    try {
+      _check(_diagnostics(_handle, buffer.cast<Char>(), 16384, required),
+          'bm_gpu_get_diagnostics_json');
+      return Map<String, dynamic>.from(jsonDecode(
+        utf8.decode(buffer.asTypedList(required.value - 1)),
+      ) as Map);
+    } finally {
+      calloc.free(buffer);
       calloc.free(required);
     }
   }

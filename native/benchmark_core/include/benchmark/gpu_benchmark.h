@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include "benchmark/gpu_compatibility.h"
 
 namespace benchmark {
 
@@ -68,6 +69,8 @@ struct GpuSnapshot {
   std::uint32_t dispatch_count = 0;
   std::uint32_t iteration_count = 64;
   std::string last_error;
+  detail::GpuDiagnostics diagnostics{};
+  bool fatal_error = false;
 };
 
 class GpuBenchmarkEngine {

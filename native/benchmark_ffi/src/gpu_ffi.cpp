@@ -156,6 +156,16 @@ int32_t bm_gpu_get_capabilities_json(bm_gpu_engine_handle engine,
                   capacity, out_required);
 }
 
+int32_t bm_gpu_get_diagnostics_json(bm_gpu_engine_handle engine,
+                                    char *out_json, std::uint32_t capacity,
+                                    std::uint32_t *out_required) {
+  if (engine == nullptr) return BM_STATUS_INVALID_ARGUMENT;
+  const auto snapshot = ToGpuEngine(engine)->GetSnapshot();
+  return CopyJson(benchmark::detail::GpuDiagnosticsJson(
+                      snapshot.run_id, snapshot.diagnostics, snapshot.fatal_error),
+                  out_json, capacity, out_required);
+}
+
 } // extern "C"
 
 static_assert(sizeof(bm_gpu_request_v1) == 24,

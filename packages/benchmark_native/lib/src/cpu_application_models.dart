@@ -48,6 +48,11 @@ final class CpuApplicationSnapshot {
       unitsPerSecond.isFinite &&
       unitsPerSecond > 0;
   double get displayValue => unitsPerSecond / 1000000;
+  String? get selectionWarning => (flags & 16) != 0
+      ? 'Fastest core unknown · automatic fallback'
+      : (flags & 8) != 0
+          ? 'Core selection estimated from frequency'
+          : null;
   String get executionLabel => (flags & 2) != 0
       ? 'All cores · $threadCount independent ${threadCount == 1 ? 'worker' : 'workers'}'
       : 'CPU $selectedCpu · 1 worker';

@@ -4,6 +4,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <new>
+#include <cstring>
+#include <sstream>
 
 #include "benchmark/engine.h"
 #include "benchmark/memory_engine.h"
@@ -275,6 +277,31 @@ int32_t bm_memory_get_snapshot(bm_memory_engine_handle engine,
   result.bandwidth_gbps = native.bandwidth_gbps;
   result.progress = native.progress;
   *out_snapshot = result;
+  return BM_STATUS_OK;
+}
+
+int32_t bm_memory_get_diagnostics_json(bm_memory_engine_handle engine,
+    char *out_json, uint32_t capacity, uint32_t *out_required) {
+  if (!engine || !out_required) return BM_STATUS_INVALID_ARGUMENT;
+  const auto snapshot = ToMemoryEngine(engine)->GetSnapshot();
+  std::ostringstream json;
+  json << "{\"schema\":1,\"runId\":" << snapshot.run_id
+       << ",\"present\":" << snapshot.present_cpus
+       << ",\"online\":" << snapshot.online_cpus
+       << ",\"allowed\":" << snapshot.allowed_cpus
+       << ",\"attempts\":" << snapshot.preparation_attempts
+       << ",\"unstable\":" << (snapshot.topology_unstable ? "true" : "false")
+       << ",\"selectedCpus\":[";
+  for (std::size_t index = 0; index < snapshot.selected_cpus.size(); ++index) {
+    if (index) json << ',';
+    json << snapshot.selected_cpus[index];
+  }
+  json << "]}";
+  const std::string text = json.str();
+  *out_required = static_cast<uint32_t>(text.size() + 1);
+  if (!out_json) return capacity == 0 ? BM_STATUS_OK : BM_STATUS_INVALID_ARGUMENT;
+  if (capacity < *out_required) return BM_STATUS_INVALID_ARGUMENT;
+  std::memcpy(out_json, text.c_str(), *out_required);
   return BM_STATUS_OK;
 }
 

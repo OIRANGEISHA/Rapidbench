@@ -31,6 +31,8 @@ struct CpuApplicationSnapshot {
 constexpr std::uint32_t kApplicationValidated = 1U;
 constexpr std::uint32_t kApplicationIndependentWorkers = 2U;
 constexpr std::uint32_t kApplicationPerformanceRequested = 4U;
+constexpr std::uint32_t kApplicationSingleCpuInferred = 8U;
+constexpr std::uint32_t kApplicationSingleCpuUnknown = 16U;
 
 std::vector<std::uint32_t> SelectCpuApplicationCpus(const Topology &topology,
                                                     bool multi);

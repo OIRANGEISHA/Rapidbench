@@ -84,6 +84,10 @@ BM_FFI_EXPORT int32_t bm_gpu_get_snapshot(bm_gpu_engine_handle engine,
 BM_FFI_EXPORT int32_t bm_gpu_get_capabilities_json(
     bm_gpu_engine_handle engine, char *out_json, uint32_t capacity,
     uint32_t *out_required);
+// Additive diagnostics API: the published v1 request/snapshot ABI is unchanged.
+BM_FFI_EXPORT int32_t bm_gpu_get_diagnostics_json(
+    bm_gpu_engine_handle engine, char *out_json, uint32_t capacity,
+    uint32_t *out_required);
 
 #ifdef __cplusplus
 } // extern "C"

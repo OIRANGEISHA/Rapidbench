@@ -275,12 +275,26 @@ bool ContainsCpu(const std::vector<std::uint32_t> &cpus,
   return std::binary_search(cpus.begin(), cpus.end(), logical_cpu);
 }
 
-std::uint64_t PerformanceRank(const CpuInfo &cpu) {
-  if (cpu.capacity != 0) {
+enum class RankSource { kCapacity, kFrequency, kUnknown };
+
+RankSource CommonRankSource(const Topology &topology) {
+  if (topology.cpus.empty())
+    return RankSource::kUnknown;
+  if (std::all_of(topology.cpus.begin(), topology.cpus.end(),
+                  [](const CpuInfo &cpu) { return cpu.capacity > 0; }))
+    return RankSource::kCapacity;
+  if (std::all_of(topology.cpus.begin(), topology.cpus.end(),
+                  [](const CpuInfo &cpu) { return cpu.max_frequency_khz > 0; }))
+    return RankSource::kFrequency;
+  return RankSource::kUnknown;
+}
+
+std::uint64_t PerformanceRank(const CpuInfo &cpu, RankSource source) {
+  if (source == RankSource::kCapacity) {
     return (static_cast<std::uint64_t>(cpu.capacity) << 32U) |
            cpu.max_frequency_khz;
   }
-  return cpu.max_frequency_khz;
+  return source == RankSource::kFrequency ? cpu.max_frequency_khz : 0;
 }
 
 enum class PerformanceGroupSource {
@@ -290,14 +304,15 @@ enum class PerformanceGroupSource {
 };
 
 std::int64_t PerformanceGroupIdentity(const CpuInfo &cpu,
-                                      PerformanceGroupSource source) {
+                                      PerformanceGroupSource source,
+                                      RankSource rank_source) {
   switch (source) {
   case PerformanceGroupSource::kCluster:
     return cpu.cluster_id;
   case PerformanceGroupSource::kFrequencyPolicy:
     return cpu.frequency_policy_id;
   case PerformanceGroupSource::kPerformanceRank:
-    return static_cast<std::int64_t>(PerformanceRank(cpu));
+    return static_cast<std::int64_t>(PerformanceRank(cpu, rank_source));
   }
   return 0;
 }
@@ -310,6 +325,22 @@ void AssignPerformanceGroups(Topology *topology) {
   if (topology == nullptr) {
     return;
   }
+
+  // Compare like-for-like evidence, never readable capacity against missing
+  // capacity. Frequency-only selection is an estimate, not measured IPC.
+  const auto rank_source = CommonRankSource(*topology);
+  topology->quality_flags &= ~(kQualitySingleCpuInferred |
+                               kQualitySingleCpuUnknown |
+                               kQualityPerformanceGroupsInferred);
+  if (rank_source == RankSource::kFrequency)
+    topology->quality_flags |= kQualitySingleCpuInferred;
+  if (rank_source == RankSource::kUnknown)
+    topology->quality_flags |= kQualitySingleCpuUnknown;
+  std::vector<std::uint64_t> ranks;
+  for (const auto &cpu : topology->cpus)
+    ranks.push_back(PerformanceRank(cpu, rank_source));
+  std::sort(ranks.begin(), ranks.end());
+  const bool distinct_ranks = !ranks.empty() && ranks.front() != ranks.back();
 
   std::vector<std::int32_t> cluster_ids;
   std::vector<std::int32_t> frequency_policy_ids;
@@ -345,9 +376,9 @@ void AssignPerformanceGroups(Topology *topology) {
     source = PerformanceGroupSource::kCluster;
   } else if (policies_complete && frequency_policy_ids.size() > 1) {
     source = PerformanceGroupSource::kFrequencyPolicy;
-  } else if (clusters_complete) {
+  } else if (clusters_complete && !distinct_ranks) {
     source = PerformanceGroupSource::kCluster;
-  } else if (policies_complete) {
+  } else if (policies_complete && !distinct_ranks) {
     source = PerformanceGroupSource::kFrequencyPolicy;
   } else {
     topology->quality_flags |= kQualityPerformanceGroupsInferred;
@@ -355,11 +386,11 @@ void AssignPerformanceGroups(Topology *topology) {
 
   std::map<std::int64_t, std::uint64_t> group_ranks;
   for (const CpuInfo &cpu : topology->cpus) {
-    const std::int64_t identity = PerformanceGroupIdentity(cpu, source);
+    const std::int64_t identity = PerformanceGroupIdentity(cpu, source, rank_source);
     auto [entry, inserted] =
-        group_ranks.emplace(identity, PerformanceRank(cpu));
+        group_ranks.emplace(identity, PerformanceRank(cpu, rank_source));
     if (!inserted) {
-      entry->second = std::max(entry->second, PerformanceRank(cpu));
+      entry->second = std::max(entry->second, PerformanceRank(cpu, rank_source));
     }
   }
 
@@ -384,15 +415,22 @@ void AssignPerformanceGroups(Topology *topology) {
 
   topology->preferred_single_cpu = -1;
   std::uint64_t best_rank = 0;
+  bool best_available = false;
   for (CpuInfo &cpu : topology->cpus) {
     const auto group =
-        assigned_groups.find(PerformanceGroupIdentity(cpu, source));
+        assigned_groups.find(PerformanceGroupIdentity(cpu, source, rank_source));
     if (group != assigned_groups.end()) {
       cpu.performance_group = group->second;
     }
-    const std::uint64_t rank = PerformanceRank(cpu);
-    if (topology->preferred_single_cpu < 0 || rank > best_rank) {
+    const std::uint64_t rank = PerformanceRank(cpu, rank_source);
+    const bool available = cpu.online && cpu.allowed;
+    const bool tie_better = rank == best_rank &&
+        ((rank_source == RankSource::kUnknown && available && !best_available) ||
+         ((rank_source != RankSource::kUnknown || available == best_available) &&
+          cpu.logical_cpu < static_cast<std::uint32_t>(topology->preferred_single_cpu)));
+    if (topology->preferred_single_cpu < 0 || rank > best_rank || tie_better) {
       best_rank = rank;
+      best_available = available;
       topology->preferred_single_cpu =
           static_cast<std::int32_t>(cpu.logical_cpu);
     }
@@ -498,12 +536,12 @@ std::vector<std::uint32_t> SelectCpuCandidates(const Topology &topology,
       candidates.push_back(&cpu);
     }
   }
+  const auto rank_source = CommonRankSource(topology);
   std::sort(candidates.begin(), candidates.end(),
-            [](const CpuInfo *lhs, const CpuInfo *rhs) {
-              return std::tie(rhs->performance_group, rhs->capacity,
-                              rhs->max_frequency_khz, lhs->logical_cpu) <
-                     std::tie(lhs->performance_group, lhs->capacity,
-                              lhs->max_frequency_khz, rhs->logical_cpu);
+            [rank_source](const CpuInfo *lhs, const CpuInfo *rhs) {
+              const auto left = PerformanceRank(*lhs, rank_source);
+              const auto right = PerformanceRank(*rhs, rank_source);
+              return left != right ? left > right : lhs->logical_cpu < rhs->logical_cpu;
             });
 
   if (requested_threads != 0 && requested_threads < candidates.size()) {

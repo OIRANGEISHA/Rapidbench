@@ -87,6 +87,13 @@ class _MemoryBody extends StatelessWidget {
             label: 'State',
             value: _stateLabel(snapshot.state, snapshot.test),
           ),
+          if (snapshot.topologyWarning case final warning?)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(warning,
+                  style: const TextStyle(
+                      color: Color(0xFFFFCC80), fontSize: 11, height: 1.35)),
+            ),
           if (snapshot.affinityFailures > 0)
             Padding(
               padding: const EdgeInsets.only(top: 8),
@@ -361,4 +368,3 @@ class _MemoryLoadFailure extends StatelessWidget {
     );
   }
 }
-

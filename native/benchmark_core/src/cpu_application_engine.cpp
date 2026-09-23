@@ -184,8 +184,9 @@ private:
     Gates gate;
     std::unique_ptr<PerformanceHintSession> hint;
     try {
+      const auto topology = DetectTopology();
       const auto cpus = SelectCpuApplicationCpus(
-          DetectTopology(), request.requested_threads == 0);
+          topology, request.requested_threads == 0);
       if (cpus.empty())
         throw std::invalid_argument("Unavailable CPU selection");
       for (auto cpu : cpus) {
@@ -201,6 +202,12 @@ private:
                                     : -1;
         snapshot.flags =
             request.requested_threads != 1 ? kApplicationIndependentWorkers : 0;
+        if (request.requested_threads == 1) {
+          if (topology.quality_flags & kQualitySingleCpuInferred)
+            snapshot.flags |= kApplicationSingleCpuInferred;
+          if (topology.quality_flags & kQualitySingleCpuUnknown)
+            snapshot.flags |= kApplicationSingleCpuUnknown;
+        }
         Publish(snapshot);
         threads.reserve(workers.size());
         for (auto &worker : workers)

@@ -151,6 +151,12 @@ int main(int argc, char **argv) {
     return 9;
   }
   PrintSnapshot("FULL", snapshot);
+  char diagnostics[16384]{};
+  if (bm_gpu_get_diagnostics_json(engine, diagnostics, sizeof(diagnostics), &required) != BM_STATUS_OK) {
+    bm_gpu_engine_destroy(engine);
+    return 11;
+  }
+  std::printf("DIAGNOSTICS %s\n", diagnostics);
   const bool full_valid =
       snapshot.state == BM_GPU_STATE_COMPLETED &&
       snapshot.fp32_gflops > 0.0 && snapshot.fp16_gflops > 0.0 &&

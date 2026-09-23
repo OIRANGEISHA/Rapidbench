@@ -32,6 +32,11 @@ final class MemoryBenchmarkSnapshot {
     this.processedBytes = 0,
     this.bandwidthGbps = 0,
     this.progress = 0,
+    this.presentCpus = 0,
+    this.onlineCpus = 0,
+    this.allowedCpus = 0,
+    this.preparationAttempts = 0,
+    this.topologyUnstable = false,
   });
 
   final int runId;
@@ -46,6 +51,19 @@ final class MemoryBenchmarkSnapshot {
   final int processedBytes;
   final double bandwidthGbps;
   final double progress;
+  final int presentCpus, onlineCpus, allowedCpus, preparationAttempts;
+  final bool topologyUnstable;
+
+  String? get topologyWarning {
+    if (topologyUnstable)
+      return 'CPU availability changed during preparation; '
+          'measurement used a fixed set of $threadCount workers.';
+    if (presentCpus > 0 && threadCount < presentCpus) {
+      return '$threadCount of $presentCpus detected CPUs used '
+          '($onlineCpus online, $allowedCpus allowed).';
+    }
+    return null;
+  }
 }
 
 final class MemoryFrequencyInfo {

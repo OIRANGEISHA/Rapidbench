@@ -76,10 +76,12 @@ class _GpuBody extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           for (final test in _tests) ...[
-            _GpuResultCard(
+            GpuResultCard(
               test: test,
               snapshot: snapshot,
-              enabled: capabilities.available && controller.canStart,
+              enabled: capabilities.supports(test) &&
+                  controller.canStart &&
+                  !snapshot.fatalError,
               live: snapshot.state.isRunning && snapshot.activeTest == test,
               onTap: () => controller.startSingle(test),
             ),
@@ -92,8 +94,27 @@ class _GpuBody extends StatelessWidget {
           ),
           _InformationRow(
             label: 'Timing',
-            value: snapshot.timingMode.label,
+            value: snapshot.timingLabel,
           ),
+          if (snapshot.diagnostics.values
+              .any((item) => item.hostBatches + item.timestampBatches > 0))
+            ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              title:
+                  const Text('Timing details', style: TextStyle(fontSize: 12)),
+              children: [
+                for (final test in _tests)
+                  if (snapshot.diagnostics[test.nativeId] case final item?)
+                    if (item.hostBatches + item.timestampBatches > 0)
+                      _InformationRow(
+                        label: test.label,
+                        value:
+                            '${item.timestampBatches} GPU / ${item.hostBatches} host batches\n'
+                            'Host ${item.hostSeconds.toStringAsFixed(3)} s · '
+                            'GPU observed ${item.gpuObservedSeconds.toStringAsFixed(3)} s',
+                      ),
+              ],
+            ),
           if (snapshot.bufferBytes > 0)
             _InformationRow(
               label: 'Bandwidth Working Set',
@@ -143,12 +164,17 @@ class _GpuBody extends StatelessWidget {
                 style: const TextStyle(color: Color(0xFFFF8A80)),
               ),
             ),
+          if (snapshot.fatalError)
+            const Text('GPU context lost. Restart the app before retrying.',
+                style: TextStyle(color: Color(0xFFFF8A80))),
           const SizedBox(height: 18),
           Row(
             children: [
               Expanded(
                 child: ElevatedButton(
-                  onPressed: capabilities.available && controller.canStart
+                  onPressed: capabilities.supports(GpuBenchmarkTest.all) &&
+                          controller.canStart &&
+                          !snapshot.fatalError
                       ? controller.startAll
                       : null,
                   child: const Text('BENCH GPU'),
@@ -239,8 +265,9 @@ class _GpuIdentityCard extends StatelessWidget {
   }
 }
 
-class _GpuResultCard extends StatelessWidget {
-  const _GpuResultCard({
+class GpuResultCard extends StatelessWidget {
+  const GpuResultCard({
+    super.key,
     required this.test,
     required this.snapshot,
     required this.enabled,
@@ -298,8 +325,6 @@ class _GpuResultCard extends StatelessWidget {
                     const SizedBox(height: 7),
                     Text(
                       _detailLabel(test, snapshot),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         color: Color(0xFF78838A),
                         fontSize: 11,
@@ -389,6 +414,16 @@ class _GpuResultCard extends StatelessWidget {
     GpuBenchmarkTest test,
     GpuBenchmarkSnapshot snapshot,
   ) {
+    final item = snapshot.diagnostics[test.nativeId];
+    if (item?.state == GpuItemState.unavailable) {
+      return 'Unavailable · ${item!.reason}';
+    }
+    if (item?.state == GpuItemState.failed) {
+      return 'Failed · ${item!.reason}';
+    }
+    if (item?.state == GpuItemState.stopped) {
+      return 'Stopped · incomplete result';
+    }
     if (live) {
       return snapshot.state == GpuBenchmarkState.warmingUp
           ? 'Warming up GPU'
@@ -396,7 +431,9 @@ class _GpuResultCard extends StatelessWidget {
     }
     if (test == GpuBenchmarkTest.fp16) {
       if (snapshot.fp16Mode == GpuFp16Mode.emulated) {
-        return 'Executed using FP32 fallback';
+        return item?.reason.isNotEmpty == true
+            ? item!.reason
+            : 'Executed using FP32 fallback';
       }
       if (snapshot.fp16Scaling > 0) {
         return '${snapshot.fp16Scaling.toStringAsFixed(2)}× FP32';

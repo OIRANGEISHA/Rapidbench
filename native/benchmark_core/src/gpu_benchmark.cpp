@@ -39,6 +39,9 @@
 #include "mixed_compute.spv.h"
 
 namespace benchmark {
+#if defined(BM_GPU_TEST_FAULT_INJECTION)
+namespace detail { int GpuPipelineFaultForTest(unsigned slot); }
+#endif
 namespace {
 
 using Clock = std::chrono::steady_clock;
@@ -340,6 +343,7 @@ struct BufferResource {
 struct BatchResult {
   bool ok = false;
   double seconds = 0.0;
+  double host_seconds = 0.0, gpu_observed_seconds = 0.0;
   GpuTimingMode timing_mode = GpuTimingMode::kHostFallback;
   std::string error;
 };
@@ -533,6 +537,17 @@ public:
 
   bool available() const { return available_; }
   bool shader_float16() const { return shader_float16_; }
+  bool fatal_driver_error() const { return fatal_driver_error_; }
+  bool TestAvailable(GpuTest test) const {
+    return (pipeline_support_.AvailableMask() & (1U << static_cast<unsigned>(test))) != 0;
+  }
+  std::string TestReason(GpuTest test) const {
+    if (test == GpuTest::kFp16 && native_fp16_reported_ && !shader_float16_)
+      return "Native FP16 pipeline unavailable; " +
+             std::string(TestAvailable(test) ? "using explicit FP32 emulation. " : "FP32 emulation also unavailable. ") +
+             pipeline_errors_[static_cast<std::size_t>(PipelineSlot::kFp16Native_8)];
+    return pipeline_errors_[static_cast<std::size_t>(SlotForTest(test, 0))];
+  }
   bool timestamp_available() const {
     return timestamp_usable_ && query_pool_ != VK_NULL_HANDLE;
   }
@@ -564,7 +579,7 @@ public:
            << queue_properties_.timestampValidBits
            << ",\"timestampPeriod\":" << properties_.limits.timestampPeriod
            << ",\"shaderFloat16\":"
-           << (shader_float16_ ? "true" : "false")
+           << (native_fp16_reported_ ? "true" : "false")
            << ",\"fp16Mode\":\""
            << (shader_float16_ ? "NATIVE" : "EMULATED")
            << "\",\"workgroupSize\":" << kWorkgroupSize
@@ -579,7 +594,15 @@ public:
            << properties_.limits.maxStorageBufferRange
            << ",\"memoryBufferBytes\":" << memory_input_.size
            << ",\"reducedWorkingSet\":"
-           << (reduced_working_set() ? "true" : "false") << "}";
+           << (reduced_working_set() ? "true" : "false")
+           << ",\"availableTestMask\":" << pipeline_support_.AvailableMask()
+           << ",\"testReasons\":{";
+    for (unsigned test = 1; test <= 5; ++test) {
+      if (test != 1) output << ',';
+      output << '"' << test << "\":\""
+             << EscapeJson(TestReason(static_cast<GpuTest>(test))) << '"';
+    }
+    output << "}}";
     return output.str();
   }
 
@@ -630,6 +653,11 @@ public:
                            std::uint32_t ring_index,
                            std::uint32_t fp_variant = 0U) {
     BatchResult result{};
+    struct SubmissionGuard {
+      BatchResult &result;
+      bool &fatal;
+      ~SubmissionGuard() { if (!result.ok) fatal = true; }
+    } submission_guard{result, fatal_driver_error_};
     const PipelineSlot slot = SlotForTest(test, fp_variant);
     const VkPipeline pipeline = pipelines_[static_cast<std::size_t>(slot)];
     if (pipeline == VK_NULL_HANDLE) {
@@ -743,6 +771,7 @@ public:
     }
     const double host_seconds =
         std::chrono::duration<double>(host_end - host_start).count();
+    result.host_seconds = host_seconds;
     result.seconds = host_seconds;
     result.timing_mode = GpuTimingMode::kHostFallback;
     if (use_timestamp) {
@@ -763,6 +792,7 @@ public:
         const double gpu_seconds =
             static_cast<double>(ticks) * properties_.limits.timestampPeriod *
             1.0e-9;
+        result.gpu_observed_seconds = gpu_seconds;
         const auto timing =
             detail::SelectGpuElapsedSeconds(host_seconds, gpu_seconds, true);
         result.seconds = timing.seconds;
@@ -827,8 +857,8 @@ public:
       return false;
     }
     void *mapped = nullptr;
-    if (functions_.MapMemory(device_, output.memory, 0U, output.size, 0U,
-                             &mapped) != VK_SUCCESS ||
+    if (TrackDeviceResult(functions_.MapMemory(device_, output.memory, 0U, output.size, 0U,
+                             &mapped)) != VK_SUCCESS ||
         mapped == nullptr) {
       *error = "Unable to map GPU validation output";
       return false;
@@ -838,7 +868,7 @@ public:
       range.memory = output.memory;
       range.offset = 0U;
       range.size = VK_WHOLE_SIZE;
-      if (functions_.InvalidateMappedMemoryRanges(device_, 1U, &range) !=
+      if (TrackDeviceResult(functions_.InvalidateMappedMemoryRanges(device_, 1U, &range)) !=
           VK_SUCCESS) {
         functions_.UnmapMemory(device_, output.memory);
         *error = "Unable to invalidate GPU validation output";
@@ -875,6 +905,7 @@ public:
 private:
   bool MakeWritesVisibleToHost(std::string *error) {
     const auto fail = [&]() {
+      fatal_driver_error_ = true;
       *error = "GPU output readback synchronization failed";
       return false;
     };
@@ -991,26 +1022,20 @@ private:
                        compute_output_);
     }
 
-    if (!CreatePipeline(PipelineSlot::kFp32_8, gpu_shaders::kFp32Compute,
-                        gpu_shaders::kFp32ComputeSize, error) ||
-        !CreatePipeline(PipelineSlot::kFp16Emulated_8,
-                        gpu_shaders::kFp16Emulated,
-                        gpu_shaders::kFp16EmulatedSize, error) ||
-        !CreatePipeline(PipelineSlot::kInt32, gpu_shaders::kInt32Compute,
-                        gpu_shaders::kInt32ComputeSize, error) ||
-        !CreatePipeline(PipelineSlot::kMixed, gpu_shaders::kMixedCompute,
-                        gpu_shaders::kMixedComputeSize, error) ||
-        !CreatePipeline(PipelineSlot::kMemoryBandwidth,
-                        gpu_shaders::kMemoryBandwidth,
-                        gpu_shaders::kMemoryBandwidthSize, error)) {
-      return false;
-    }
-    if (shader_float16_ &&
-        !CreatePipeline(PipelineSlot::kFp16Native_8,
-                        gpu_shaders::kFp16Native,
-                        gpu_shaders::kFp16NativeSize, error)) {
-      return false;
-    }
+    native_fp16_reported_ = shader_float16_;
+    TryCreateOptionalPipeline(PipelineSlot::kFp32_8, gpu_shaders::kFp32Compute,
+                              gpu_shaders::kFp32ComputeSize);
+    TryCreateOptionalPipeline(PipelineSlot::kFp16Emulated_8, gpu_shaders::kFp16Emulated,
+                              gpu_shaders::kFp16EmulatedSize);
+    TryCreateOptionalPipeline(PipelineSlot::kInt32, gpu_shaders::kInt32Compute,
+                              gpu_shaders::kInt32ComputeSize);
+    TryCreateOptionalPipeline(PipelineSlot::kMixed, gpu_shaders::kMixedCompute,
+                              gpu_shaders::kMixedComputeSize);
+    TryCreateOptionalPipeline(PipelineSlot::kMemoryBandwidth, gpu_shaders::kMemoryBandwidth,
+                              gpu_shaders::kMemoryBandwidthSize);
+    if (shader_float16_)
+      TryCreateOptionalPipeline(PipelineSlot::kFp16Native_8, gpu_shaders::kFp16Native,
+                                gpu_shaders::kFp16NativeSize);
 
     TryCreateOptionalPipeline(PipelineSlot::kFp32_12,
                               gpu_shaders::kFp32Compute12,
@@ -1033,6 +1058,20 @@ private:
                                 gpu_shaders::kFp16Native16Size);
     }
 
+    const auto present = [&](PipelineSlot slot) {
+      return pipelines_[static_cast<std::size_t>(slot)] != VK_NULL_HANDLE;
+    };
+    pipeline_support_ = {present(PipelineSlot::kFp32_8),
+                         present(PipelineSlot::kFp16Native_8),
+                         present(PipelineSlot::kFp16Emulated_8),
+                         present(PipelineSlot::kInt32), present(PipelineSlot::kMixed),
+                         present(PipelineSlot::kMemoryBandwidth)};
+    shader_float16_ = pipeline_support_.fp16_native;
+    if (fatal_driver_error_ || pipeline_support_.AvailableMask() == 0) {
+      *error = fatal_driver_error_ ? "Vulkan device lost during pipeline creation"
+                                  : "No usable Vulkan benchmark pipeline";
+      return false;
+    }
     VkCommandPoolCreateInfo command_pool_info{
         VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
     command_pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
@@ -1079,6 +1118,14 @@ private:
 
   bool CreatePipeline(PipelineSlot slot, const std::uint8_t *code,
                       std::size_t code_size, std::string *error) {
+#if defined(BM_GPU_TEST_FAULT_INJECTION)
+    // Compiled only into the dedicated native test executable, never the App.
+    if (const int fault = detail::GpuPipelineFaultForTest(static_cast<unsigned>(slot)); fault != 0) {
+      fatal_driver_error_ |= fault == 2;
+      *error = fault == 2 ? "Injected device loss" : "Injected pipeline rejection";
+      return false;
+    }
+#endif
     if (code_size == 0U || code_size % sizeof(std::uint32_t) != 0U) {
       *error = "Embedded SPIR-V has an invalid size";
       return false;
@@ -1088,9 +1135,10 @@ private:
     shader_info.codeSize = code_size;
     shader_info.pCode = reinterpret_cast<const std::uint32_t *>(code);
     VkShaderModule shader = VK_NULL_HANDLE;
-    if (functions_.CreateShaderModule(device_, &shader_info, nullptr, &shader) !=
-        VK_SUCCESS) {
-      *error = "Vulkan shader-module creation failed";
+    const auto shader_result = functions_.CreateShaderModule(device_, &shader_info, nullptr, &shader);
+    if (shader_result != VK_SUCCESS) {
+      fatal_driver_error_ |= shader_result == VK_ERROR_DEVICE_LOST;
+      *error = "Vulkan shader-module creation failed (" + std::to_string(shader_result) + ")";
       return false;
     }
     VkPipelineShaderStageCreateInfo stage{
@@ -1107,7 +1155,8 @@ private:
         &pipelines_[static_cast<std::size_t>(slot)]);
     functions_.DestroyShaderModule(device_, shader, nullptr);
     if (result != VK_SUCCESS) {
-      *error = "Vulkan compute-pipeline creation failed";
+      fatal_driver_error_ |= result == VK_ERROR_DEVICE_LOST;
+      *error = "Vulkan compute-pipeline creation failed (" + std::to_string(result) + ")";
       return false;
     }
     return true;
@@ -1115,8 +1164,12 @@ private:
 
   void TryCreateOptionalPipeline(PipelineSlot slot, const std::uint8_t *code,
                                  std::size_t code_size) {
-    std::string ignored_error;
-    if (CreatePipeline(slot, code, code_size, &ignored_error)) {
+    auto &error = pipeline_errors_[static_cast<std::size_t>(slot)];
+    if (fatal_driver_error_) {
+      error = "Vulkan device lost";
+      return;
+    }
+    if (CreatePipeline(slot, code, code_size, &error)) {
       return;
     }
     VkPipeline &pipeline = pipelines_[static_cast<std::size_t>(slot)];
@@ -1145,13 +1198,18 @@ private:
     return std::nullopt;
   }
 
+  VkResult TrackDeviceResult(VkResult result) {
+    fatal_driver_error_ |= result == VK_ERROR_DEVICE_LOST;
+    return result;
+  }
+
   bool CreateHostBuffer(VkDeviceSize size, BufferResource *resource) {
     VkBufferCreateInfo buffer_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     buffer_info.size = size;
     buffer_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
     buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    if (functions_.CreateBuffer(device_, &buffer_info, nullptr,
-                                &resource->buffer) != VK_SUCCESS) {
+    if (TrackDeviceResult(functions_.CreateBuffer(device_, &buffer_info, nullptr,
+                                &resource->buffer)) != VK_SUCCESS) {
       return false;
     }
     VkMemoryRequirements requirements{};
@@ -1168,13 +1226,13 @@ private:
     VkMemoryAllocateInfo allocation{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
     allocation.allocationSize = requirements.size;
     allocation.memoryTypeIndex = memory_type->first;
-    if (functions_.AllocateMemory(device_, &allocation, nullptr,
-                                  &resource->memory) != VK_SUCCESS) {
+    if (TrackDeviceResult(functions_.AllocateMemory(device_, &allocation, nullptr,
+                                  &resource->memory)) != VK_SUCCESS) {
       DestroyBuffer(resource);
       return false;
     }
-    if (functions_.BindBufferMemory(device_, resource->buffer,
-                                    resource->memory, 0U) != VK_SUCCESS) {
+    if (TrackDeviceResult(functions_.BindBufferMemory(device_, resource->buffer,
+                                    resource->memory, 0U)) != VK_SUCCESS) {
       DestroyBuffer(resource);
       return false;
     }
@@ -1185,8 +1243,8 @@ private:
 
   bool InitializeBuffer(const BufferResource &resource, bool clear) {
     void *mapped = nullptr;
-    if (functions_.MapMemory(device_, resource.memory, 0U, resource.size, 0U,
-                             &mapped) != VK_SUCCESS ||
+    if (TrackDeviceResult(functions_.MapMemory(device_, resource.memory, 0U, resource.size, 0U,
+                             &mapped)) != VK_SUCCESS ||
         mapped == nullptr) {
       return false;
     }
@@ -1205,7 +1263,7 @@ private:
       range.memory = resource.memory;
       range.offset = 0U;
       range.size = VK_WHOLE_SIZE;
-      if (functions_.FlushMappedMemoryRanges(device_, 1U, &range) !=
+      if (TrackDeviceResult(functions_.FlushMappedMemoryRanges(device_, 1U, &range)) !=
           VK_SUCCESS) {
         functions_.UnmapMemory(device_, resource.memory);
         return false;
@@ -1346,6 +1404,8 @@ private:
   VkPipelineLayout pipeline_layout_ = VK_NULL_HANDLE;
   std::array<VkPipeline, static_cast<std::size_t>(PipelineSlot::kCount)>
       pipelines_{};
+  std::array<std::string, static_cast<std::size_t>(PipelineSlot::kCount)> pipeline_errors_{};
+  detail::GpuPipelineSupport pipeline_support_{};
   VkCommandPool command_pool_ = VK_NULL_HANDLE;
   VkCommandBuffer command_buffer_ = VK_NULL_HANDLE;
   VkFence fence_ = VK_NULL_HANDLE;
@@ -1355,6 +1415,8 @@ private:
   BufferResource memory_input_{};
   BufferResource memory_output_{};
   bool shader_float16_ = false;
+  bool native_fp16_reported_ = false;
+  bool fatal_driver_error_ = false;
   bool timestamp_usable_ = false;
   bool available_ = false;
 };
@@ -1391,8 +1453,10 @@ public:
                                 ? GpuFp16Mode::kNative
                                 : GpuFp16Mode::kEmulated;
     snapshot_.timing_mode = context_.timestamp_available()
-                                ? GpuTimingMode::kGpuTimestamp
-                                : GpuTimingMode::kHostFallback;
+                                 ? GpuTimingMode::kGpuTimestamp
+                                 : GpuTimingMode::kHostFallback;
+    for (unsigned i = 1; i <= 5; ++i)
+      ResetItem(static_cast<GpuTest>(i), 0);
     if (!context_available_) {
       snapshot_.last_error = initialization_error_;
       initialization_error_code_ = error_code;
@@ -1421,6 +1485,7 @@ public:
       if (IsRunningState(snapshot_.state)) {
         return kStatusBusy;
       }
+      if (snapshot_.fatal_error) return kStatusInternalError;
     }
     if (worker_.joinable()) {
       worker_.join();
@@ -1441,9 +1506,11 @@ public:
         for (const auto test : {GpuTest::kFp32, GpuTest::kFp16, GpuTest::kInt32,
                                 GpuTest::kMixed, GpuTest::kMemoryBandwidth}) {
           AssignValue(test, 0.0);
+          ResetItem(test, run_id);
         }
       } else {
         AssignValue(request.test, 0.0);
+        ResetItem(request.test, run_id);
       }
       snapshot_.error_code = 0;
       snapshot_.elapsed_ns = 0U;
@@ -1485,6 +1552,16 @@ public:
   }
 
 private:
+  void ResetItem(GpuTest test, std::uint64_t run_id) {
+    auto &item = snapshot_.diagnostics[static_cast<unsigned>(test)];
+    item = {};
+    item.run_id = run_id;
+    item.state = context_available_ && context_.TestAvailable(test)
+                     ? detail::GpuItemState::kReady
+                     : detail::GpuItemState::kUnavailable;
+    item.reason = context_.TestReason(test);
+  }
+
   void WorkerMain(GpuRequest request, std::uint64_t run_id) {
     const auto run_start = Clock::now();
     const std::array<GpuTest, 5> all_tests = {
@@ -1526,6 +1603,15 @@ private:
       std::lock_guard<std::mutex> lock(snapshot_mutex_);
       snapshot_.active_test = test;
       AssignValue(test, 0.0);
+    }
+    if (!context_.TestAvailable(test)) {
+      if (request.test == GpuTest::kAll) return true;
+      SetError(run_id, kErrorPipelineCreation, context_.TestReason(test), run_start);
+      return false;
+    }
+    {
+      std::lock_guard<std::mutex> lock(snapshot_mutex_);
+      snapshot_.diagnostics[static_cast<unsigned>(test)].state = detail::GpuItemState::kRunning;
     }
     if (test == GpuTest::kMemoryBandwidth) {
       std::string allocation_error;
@@ -1647,6 +1733,8 @@ private:
       }
       snapshot_.state = GpuState::kRunning;
       snapshot_.dispatch_count = repetitions;
+      snapshot_.diagnostics[static_cast<unsigned>(test)].fp_accumulators =
+          is_fp_test ? fp_accumulators : 0;
     }
     const auto measure_start = Clock::now();
     double total_amount = 0.0;
@@ -1689,6 +1777,9 @@ private:
           return false;
         }
         AssignValue(test, value);
+        snapshot_.diagnostics[static_cast<unsigned>(test)].AddBatch(
+            batch.host_seconds, batch.gpu_observed_seconds,
+            batch.timing_mode == GpuTimingMode::kGpuTimestamp);
         snapshot_.timing_mode = batch.timing_mode;
         snapshot_.gpu_batch_ms = batch.seconds * 1000.0;
         snapshot_.dispatch_count = repetitions;
@@ -1719,6 +1810,10 @@ private:
       SetStopped(run_id, run_start);
       return false;
     }
+    {
+      std::lock_guard<std::mutex> lock(snapshot_mutex_);
+      snapshot_.diagnostics[static_cast<unsigned>(test)].state = detail::GpuItemState::kCompleted;
+    }
     return true;
   }
 
@@ -1729,12 +1824,6 @@ private:
       break;
     case GpuTest::kFp16:
       snapshot_.fp16_gflops = value;
-      if (snapshot_.fp16_mode == GpuFp16Mode::kNative &&
-          snapshot_.fp32_gflops > 0.0) {
-        snapshot_.fp16_scaling = value / snapshot_.fp32_gflops;
-      } else {
-        snapshot_.fp16_scaling = 0.0;
-      }
       break;
     case GpuTest::kInt32:
       snapshot_.int32_gops = value;
@@ -1748,6 +1837,9 @@ private:
     default:
       break;
     }
+    snapshot_.fp16_scaling = snapshot_.fp16_mode == GpuFp16Mode::kNative &&
+                                    snapshot_.fp32_gflops > 0 && snapshot_.fp16_gflops > 0
+                                ? snapshot_.fp16_gflops / snapshot_.fp32_gflops : 0;
   }
 
   void SetStopped(std::uint64_t run_id, Clock::time_point run_start) {
@@ -1756,6 +1848,8 @@ private:
       return;
     }
     snapshot_.state = GpuState::kStopped;
+    snapshot_.diagnostics[static_cast<unsigned>(snapshot_.active_test)].state =
+        detail::GpuItemState::kStopped;
     snapshot_.elapsed_ns = static_cast<std::uint64_t>(
         std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() -
                                                              run_start)
@@ -1769,6 +1863,10 @@ private:
       return;
     }
     snapshot_.state = GpuState::kError;
+    auto &item = snapshot_.diagnostics[static_cast<unsigned>(snapshot_.active_test)];
+    item.state = detail::GpuItemState::kFailed;
+    item.reason = message;
+    snapshot_.fatal_error = code == kErrorSubmission || context_.fatal_driver_error();
     // A provisional throughput is not a valid result after a failed oracle.
     AssignValue(snapshot_.active_test, 0.0);
     snapshot_.error_code = code;

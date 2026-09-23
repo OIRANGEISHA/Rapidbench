@@ -172,6 +172,52 @@ bool TestRankFallback() {
                 "rank fallback was not marked inferred");
 }
 
+bool TestIncompleteEvidence() {
+  benchmark::Topology t;
+  t.cpus = {Cpu(2, 0, -1, 300, 1500000), Cpu(8, 0, -1, 0, 3200000)};
+  benchmark::AssignPerformanceGroups(&t);
+  if (!Expect(t.preferred_single_cpu == 8 && t.performance_group_count == 2,
+              "partial capacity or constant cluster hid the faster core") ||
+      !Expect((t.quality_flags & benchmark::kQualitySingleCpuInferred) != 0 &&
+                  (t.quality_flags & benchmark::kQualityPerformanceGroupsInferred) != 0,
+              "frequency-only selection was not marked inferred") ||
+      !Expect(benchmark::SelectBenchmarkCpus(t, 1) == std::vector<std::uint32_t>{8},
+              "worker selection used a different ranking basis"))
+    return false;
+  t.cpus[1].max_frequency_khz = 0;
+  t.cpus[0].online = t.cpus[0].allowed = false;
+  benchmark::AssignPerformanceGroups(&t);
+  if (!Expect(t.preferred_single_cpu == 8 &&
+                  (t.quality_flags & benchmark::kQualitySingleCpuUnknown) != 0 &&
+                  (t.quality_flags & benchmark::kQualitySingleCpuInferred) == 0,
+              "unknown ranking invented a fastest core or ignored availability"))
+    return false;
+  // Equal evidence must not depend on enumeration order or CPU ID continuity.
+  t.cpus = {Cpu(9, -1, -1, 0, 0), Cpu(3, -1, -1, 0, 0)};
+  benchmark::AssignPerformanceGroups(&t);
+  if (!Expect(t.preferred_single_cpu == 3, "unknown fallback is not deterministic"))
+    return false;
+  for (auto &cpu : t.cpus) cpu.capacity = 1024;
+  benchmark::AssignPerformanceGroups(&t);
+  return Expect((t.quality_flags & (benchmark::kQualitySingleCpuUnknown |
+                                  benchmark::kQualitySingleCpuInferred)) == 0,
+                "recovered evidence retained a stale selection warning");
+}
+
+bool TestDynamicCoreCounts() {
+  for (unsigned count : {4U, 6U, 8U, 10U, 12U}) {
+    benchmark::Topology t;
+    for (unsigned i = 0; i < count; ++i)
+      t.cpus.push_back(Cpu(i * 2, i % 3, i % 3, 300 + i, 1800000));
+    benchmark::AssignPerformanceGroups(&t);
+    if (!Expect(benchmark::SelectPresentCpuBenchmarkCpus(t, 0).size() == count &&
+                    t.preferred_single_cpu == static_cast<int>((count - 1) * 2),
+                "dynamic core count or sparse CPU IDs failed"))
+      return false;
+  }
+  return true;
+}
+
 } // namespace
 
 int main() {
@@ -180,7 +226,7 @@ int main() {
       !TestPerformanceOrderingIgnoresClusterNumber() ||
       !TestPresentCpusRemainSelectable() || !TestGroupLimit() ||
       !TestPresentCpuWithoutAffinity() || !TestTenCoreSelection() ||
-      !TestRankFallback()) {
+      !TestRankFallback() || !TestIncompleteEvidence() || !TestDynamicCoreCounts()) {
     return 1;
   }
   std::cout << "Topology grouping tests passed\n";

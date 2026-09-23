@@ -41,5 +41,34 @@ int main() {
   if (engine.Start(request, &run) != 0 || !Wait(engine, snapshot) ||
       snapshot.state != 4 || snapshot.bandwidth_gbps <= 0) return 4;
   std::puts("Memory engine stop/restart passed");
+
+  auto topology = benchmark::DetectTopology();
+  const auto available = benchmark::SelectBenchmarkCpus(topology, 0);
+  if (available.empty()) return 5;
+  const auto restricted = [&]() {
+    auto result = topology;
+    for (auto &cpu : result.cpus) cpu.allowed = cpu.logical_cpu == available.front();
+    result.allowed_count = 1;
+    return result;
+  };
+  unsigned reads = 0;
+  benchmark::MemoryEngine late_online([&]() { return ++reads == 1 ? restricted() : topology; });
+  request.warmup_ms = 30;
+  if (late_online.Start(request, &run) != 0 || !Wait(late_online, snapshot) ||
+      snapshot.state != 4 || snapshot.thread_count != available.size() ||
+      snapshot.preparation_attempts != (available.size() > 1 ? 2U : 1U) ||
+      snapshot.topology_unstable || snapshot.bandwidth_gbps <= 0) return 6;
+  std::printf("MEMORY late-online attempts=%u workers=%u\n", snapshot.preparation_attempts, snapshot.thread_count);
+  reads = 0;
+  benchmark::MemoryEngine unstable([&]() { return (++reads % 2) ? restricted() : topology; });
+  if (unstable.Start(request, &run) != 0 || !Wait(unstable, snapshot) ||
+      snapshot.state != 4 || snapshot.thread_count != 1 ||
+      (available.size() > 1 && (!snapshot.topology_unstable || snapshot.preparation_attempts != 3))) return 7;
+  std::printf("MEMORY changing-topology attempts=%u workers=%u unstable=%d\n", snapshot.preparation_attempts, snapshot.thread_count, snapshot.topology_unstable);
+  benchmark::MemoryEngine limited(restricted);
+  if (limited.Start(request, &run) != 0 || !Wait(limited, snapshot) ||
+      snapshot.state != 4 || snapshot.thread_count != 1 || snapshot.allowed_cpus != 1 ||
+      snapshot.present_cpus != topology.cpus.size()) return 8;
+  std::puts("Memory availability refresh and bounded retry passed");
   return 0;
 }

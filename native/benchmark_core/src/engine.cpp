@@ -883,6 +883,8 @@ private:
     }
 
     if (StopRequested()) {
+      peak_score = std::max(peak_score,
+                           ScoreFrom(final_totals.work, final_totals.elapsed_ns));
       PublishMeasurement(run_id, final_totals.elapsed_ns, final_totals.work,
                          ScoreFrom(final_totals.work, final_totals.elapsed_ns),
                          static_cast<double>(final_totals.elapsed_ns) /
@@ -901,6 +903,11 @@ private:
         variation =
             (window_scores.back() - window_scores.front()) / final_score;
       }
+    } else {
+      // Short/scheduler-delayed runs may not cover all score windows. The
+      // existing final-score fallback is whole-run throughput; include that
+      // measured interval in the peak fallback too, never show peak < score.
+      peak_score = std::max(peak_score, final_score);
     }
     if (variation > 0.07) {
       AddQualityFlag(run_id, kQualityHighScoreVariation);

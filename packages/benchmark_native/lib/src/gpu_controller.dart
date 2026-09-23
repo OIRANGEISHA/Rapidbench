@@ -35,7 +35,9 @@ final class GpuBenchmarkController extends ExclusiveBenchmarkController {
   }
 
   void _start(GpuBenchmarkTest test) {
-    if (!capabilities.available || !beginBenchmark(BenchmarkModule.gpu, stop)) {
+    if (!capabilities.supports(test) ||
+        _snapshot.fatalError ||
+        !beginBenchmark(BenchmarkModule.gpu, stop)) {
       return;
     }
     _lastError = null;

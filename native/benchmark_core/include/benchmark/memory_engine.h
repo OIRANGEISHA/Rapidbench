@@ -3,8 +3,10 @@
 
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <mutex>
 #include <thread>
+#include "benchmark/topology.h"
 
 namespace benchmark {
 
@@ -34,11 +36,15 @@ struct MemorySnapshot {
   std::uint64_t processed_bytes = 0;
   double bandwidth_gbps = 0.0;
   double progress = 0.0;
+  std::uint32_t present_cpus = 0, online_cpus = 0, allowed_cpus = 0;
+  std::uint32_t preparation_attempts = 0;
+  bool topology_unstable = false;
+  std::vector<std::uint32_t> selected_cpus;
 };
 
 class MemoryEngine {
 public:
-  MemoryEngine();
+  explicit MemoryEngine(std::function<Topology()> topology_reader = DetectTopology);
   ~MemoryEngine();
 
   MemoryEngine(const MemoryEngine &) = delete;
@@ -50,10 +56,13 @@ public:
 
 private:
   void Run(MemoryRequest request, std::uint64_t run_id);
+  bool RunAttempt(MemoryRequest request, std::uint64_t run_id,
+                  Topology &topology, std::uint32_t attempt);
   void Publish(const MemorySnapshot &snapshot);
 
   mutable std::mutex mutex_;
   MemorySnapshot snapshot_;
+  const std::function<Topology()> topology_reader_;
   std::thread coordinator_;
   std::atomic<bool> stop_requested_{false};
   std::atomic<std::uint64_t> next_run_id_{1};

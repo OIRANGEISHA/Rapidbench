@@ -133,6 +133,12 @@ final class CpuTopology {
 
   Iterable<CpuLogicalInfo> get allowedCpus => cpus.where((cpu) => cpu.allowed);
 
+  String? get selectionWarning => (qualityFlags & (1 << 7)) != 0
+      ? 'Fastest core unknown: CPU performance information is incomplete.'
+      : (qualityFlags & (1 << 6)) != 0
+          ? 'Automatic core selection is estimated from maximum frequency.'
+          : null;
+
   bool get performanceGroupsAreBestEffort =>
       (qualityFlags & ((1 << 0) | (1 << 1) | (1 << 2) | (1 << 5))) != 0;
 }

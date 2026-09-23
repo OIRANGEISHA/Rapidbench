@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 
@@ -122,6 +123,10 @@ typedef _SnapshotDart = int Function(
 );
 typedef _FrequencyNative = Int32 Function(Pointer<BmMemoryFrequencyV1>);
 typedef _FrequencyDart = int Function(Pointer<BmMemoryFrequencyV1>);
+typedef _DiagnosticsNative = Int32 Function(
+    Pointer<Void>, Pointer<Char>, Uint32, Pointer<Uint32>);
+typedef _DiagnosticsDart = int Function(
+    Pointer<Void>, Pointer<Char>, int, Pointer<Uint32>);
 
 final class NativeMemoryEngine {
   NativeMemoryEngine() : _library = _openLibrary() {
@@ -146,6 +151,10 @@ final class NativeMemoryEngine {
     _frequency = _library.lookupFunction<_FrequencyNative, _FrequencyDart>(
       'bm_get_memory_frequency',
     );
+    _diagnostics =
+        _library.lookupFunction<_DiagnosticsNative, _DiagnosticsDart>(
+      'bm_memory_get_diagnostics_json',
+    );
     if (_getAbi() != bmAbiVersion) {
       throw StateError('Native ABI mismatch while opening memory benchmark');
     }
@@ -167,6 +176,7 @@ final class NativeMemoryEngine {
   late final _StopDart _stop;
   late final _SnapshotDart _snapshotFunction;
   late final _FrequencyDart _frequency;
+  late final _DiagnosticsDart _diagnostics;
   late final Pointer<Void> _handle;
   late final Pointer<BmMemorySnapshotV1> _snapshot;
   bool _disposed = false;
@@ -201,6 +211,10 @@ final class NativeMemoryEngine {
       ..abiVersion = bmAbiVersion;
     _check(_snapshotFunction(_handle, _snapshot), 'bm_memory_get_snapshot');
     final native = _snapshot.ref;
+    final diagnostics = _readDiagnostics();
+    final current = diagnostics['runId'] == native.runId
+        ? diagnostics
+        : <String, dynamic>{};
     return MemoryBenchmarkSnapshot(
       runId: native.runId,
       state: BenchmarkState.fromNative(native.state),
@@ -214,6 +228,11 @@ final class NativeMemoryEngine {
       processedBytes: native.processedBytes,
       bandwidthGbps: native.bandwidthGbps,
       progress: native.progress.clamp(0.0, 1.0),
+      presentCpus: (current['present'] as num?)?.toInt() ?? 0,
+      onlineCpus: (current['online'] as num?)?.toInt() ?? 0,
+      allowedCpus: (current['allowed'] as num?)?.toInt() ?? 0,
+      preparationAttempts: (current['attempts'] as num?)?.toInt() ?? 0,
+      topologyUnstable: current['unstable'] == true,
     );
   }
 
@@ -237,6 +256,21 @@ final class NativeMemoryEngine {
       );
     } finally {
       calloc.free(pointer);
+    }
+  }
+
+  Map<String, dynamic> _readDiagnostics() {
+    final buffer = calloc<Uint8>(16384);
+    final required = calloc<Uint32>();
+    try {
+      _check(_diagnostics(_handle, buffer.cast<Char>(), 16384, required),
+          'bm_memory_get_diagnostics_json');
+      return Map<String, dynamic>.from(jsonDecode(
+        utf8.decode(buffer.asTypedList(required.value - 1)),
+      ) as Map);
+    } finally {
+      calloc.free(buffer);
+      calloc.free(required);
     }
   }
 

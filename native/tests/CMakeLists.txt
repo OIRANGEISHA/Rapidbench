@@ -26,6 +26,11 @@ target_link_libraries(gpu_timing_test PRIVATE benchmark_core)
 
 add_test(NAME gpu_timing_test COMMAND gpu_timing_test)
 
+add_executable(gpu_compatibility_test gpu_compatibility_test.cpp)
+target_compile_features(gpu_compatibility_test PRIVATE cxx_std_17)
+target_link_libraries(gpu_compatibility_test PRIVATE benchmark_core)
+add_test(NAME gpu_compatibility_test COMMAND gpu_compatibility_test)
+
 add_executable(storage_sqlite_test
   storage_sqlite_test.cpp
 )
@@ -70,6 +75,15 @@ add_test(NAME gpu_shader_contract_test COMMAND ${CMAKE_COMMAND}
   -P ${CMAKE_CURRENT_SOURCE_DIR}/gpu_shader_contract_test.cmake)
 
 if(ANDROID)
+  add_executable(gpu_pipeline_fallback_test gpu_pipeline_fallback_test.cpp
+    ../benchmark_core/src/gpu_benchmark.cpp)
+  target_compile_definitions(gpu_pipeline_fallback_test PRIVATE BM_GPU_TEST_FAULT_INJECTION=1)
+  target_compile_features(gpu_pipeline_fallback_test PRIVATE cxx_std_17)
+  target_include_directories(gpu_pipeline_fallback_test PRIVATE
+    "${CMAKE_CURRENT_BINARY_DIR}/../benchmark_core/generated/gpu_shaders")
+  add_dependencies(gpu_pipeline_fallback_test rapidbench_gpu_shaders)
+  target_link_libraries(gpu_pipeline_fallback_test PRIVATE benchmark_core)
+  add_test(NAME gpu_pipeline_fallback_test COMMAND gpu_pipeline_fallback_test)
   add_executable(gpu_device_smoke gpu_device_smoke.cpp)
   target_compile_features(gpu_device_smoke PRIVATE cxx_std_17)
   target_link_libraries(gpu_device_smoke PRIVATE benchmark_ffi)

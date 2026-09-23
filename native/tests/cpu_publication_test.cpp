@@ -21,6 +21,9 @@ int main() {
             (snapshot.run_id == previous_run &&
              snapshot.completed_work < previous_work)) {
           failed.store(true, std::memory_order_release);
+          std::cerr << "Invalid publication run=" << snapshot.run_id
+                    << " work=" << snapshot.completed_work << " previous=" << previous_work
+                    << " score=" << snapshot.current_value << '\n';
         }
         previous_run = snapshot.run_id;
         previous_work = snapshot.completed_work;
@@ -37,6 +40,7 @@ int main() {
     request.warmup_ms = 20U;
     std::uint64_t id = 0;
     if (engine.Start(request, &id) != 0) {
+      std::cerr << "Start failed run=" << run << '\n';
       failed.store(true, std::memory_order_release);
       break;
     }
@@ -48,12 +52,16 @@ int main() {
         if (snapshot.run_id != id || snapshot.current_value <= 0.0 ||
             snapshot.completed_work == 0 ||
             snapshot.peak_score < snapshot.current_value) {
+          std::cerr << "Invalid terminal run=" << id << " work=" << snapshot.completed_work
+                    << " score=" << snapshot.current_value << " peak=" << snapshot.peak_score
+                    << " elapsed=" << snapshot.elapsed_ns << '\n';
           failed.store(true, std::memory_order_release);
         }
         ++completed_runs;
         break;
       }
       if (snapshot.state == benchmark::State::kError) {
+        std::cerr << "Engine error=" << snapshot.error_code << " run=" << id << '\n';
         failed.store(true, std::memory_order_release);
         break;
       }

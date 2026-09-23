@@ -184,6 +184,10 @@ class CpuApplicationResultCard extends StatelessWidget {
                   const SizedBox(height: 6),
                   Text(current.executionLabel,
                       style: const TextStyle(color: _secondary, fontSize: 12)),
+                  if (current.selectionWarning != null)
+                    Text(current.selectionWarning!,
+                        style: const TextStyle(
+                            color: Color(0xFFE0A15C), fontSize: 12)),
                   if (current.inputBytes > 0)
                     Text(
                         '${(current.inputBytes / 1024).toStringAsFixed(1)} KiB input / worker · v${current.methodVersion}',

@@ -53,6 +53,8 @@ extern "C" {
 #define BM_QUALITY_AFFINITY_UNAVAILABLE (1ULL << 3U)
 #define BM_QUALITY_TOPOLOGY_TRUNCATED (1ULL << 4U)
 #define BM_QUALITY_PERFORMANCE_GROUPS_INFERRED (1ULL << 5U)
+#define BM_QUALITY_SINGLE_CPU_INFERRED (1ULL << 6U)
+#define BM_QUALITY_SINGLE_CPU_UNKNOWN (1ULL << 7U)
 #define BM_QUALITY_AFFINITY_FAILED (1ULL << 16U)
 #define BM_QUALITY_THREAD_COUNT_REDUCED (1ULL << 17U)
 #define BM_QUALITY_HIGH_SCORE_VARIATION (1ULL << 18U)
@@ -208,6 +210,10 @@ BM_FFI_EXPORT int32_t bm_memory_request_stop(bm_memory_engine_handle engine,
                                              uint64_t run_id);
 BM_FFI_EXPORT int32_t bm_memory_get_snapshot(
     bm_memory_engine_handle engine, bm_memory_snapshot_v1 *out_snapshot);
+// Additive diagnostics API; bm_memory_snapshot_v1 remains unchanged.
+BM_FFI_EXPORT int32_t bm_memory_get_diagnostics_json(
+    bm_memory_engine_handle engine, char *out_json, uint32_t capacity,
+    uint32_t *out_required);
 BM_FFI_EXPORT int32_t
 bm_get_memory_frequency(bm_memory_frequency_v1 *out_frequency);
 BM_FFI_EXPORT int32_t bm_get_cpu_isa_info_json(char *out_json,
@@ -222,4 +228,3 @@ BM_FFI_EXPORT int32_t bm_get_vulkan_info_json(char *out_json,
 #endif
 
 #endif // CPU_BENCHMARK_FFI_H_
-

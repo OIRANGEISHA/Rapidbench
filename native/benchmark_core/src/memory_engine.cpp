@@ -13,6 +13,7 @@
 #include <memory>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "benchmark/memory_kernels.h"
@@ -125,7 +126,8 @@ bool IsTerminal(std::uint32_t state) {
 
 } // namespace
 
-MemoryEngine::MemoryEngine() { snapshot_.state = kStateIdle; }
+MemoryEngine::MemoryEngine(std::function<Topology()> topology_reader)
+    : topology_reader_(std::move(topology_reader)) { snapshot_.state = kStateIdle; }
 
 MemoryEngine::~MemoryEngine() {
   stop_requested_.store(true, std::memory_order_release);
@@ -193,18 +195,32 @@ void MemoryEngine::Publish(const MemorySnapshot &snapshot) {
 }
 
 void MemoryEngine::Run(MemoryRequest request, std::uint64_t run_id) {
+  Topology topology = topology_reader_();
+  // At most two re-preparations. Worker membership never changes in measurement.
+  for (std::uint32_t attempt = 0; attempt < 3; ++attempt) {
+    if (!RunAttempt(request, run_id, topology, attempt)) return;
+  }
+}
+
+bool MemoryEngine::RunAttempt(MemoryRequest request, std::uint64_t run_id,
+                               Topology &topology, std::uint32_t attempt) {
   MemorySnapshot snapshot{};
   snapshot.run_id = run_id;
   snapshot.state = kStatePreparing;
   snapshot.test = request.test;
 
-  const Topology topology = DetectTopology();
+  snapshot.preparation_attempts = attempt + 1;
+  snapshot.present_cpus = static_cast<std::uint32_t>(topology.cpus.size());
+  snapshot.online_cpus = topology.online_count;
+  snapshot.allowed_cpus = topology.allowed_count;
   std::vector<std::uint32_t> cpu_ids = SelectBenchmarkCpus(topology, 0U);
+  std::sort(cpu_ids.begin(), cpu_ids.end());
+  snapshot.selected_cpus = cpu_ids;
   if (cpu_ids.empty()) {
     snapshot.state = kStateError;
     snapshot.error_code = kErrorNoCpuAvailable;
     Publish(snapshot);
-    return;
+    return false;
   }
 
   std::size_t buffer_bytes = ChooseBufferBytes(cpu_ids.size());
@@ -213,7 +229,7 @@ void MemoryEngine::Run(MemoryRequest request, std::uint64_t run_id) {
     snapshot.state = kStateError;
     snapshot.error_code = kErrorAllocationFailed;
     Publish(snapshot);
-    return;
+    return false;
   }
   snapshot.buffer_bytes = buffer_bytes;
   snapshot.thread_count = static_cast<std::uint32_t>(cpu_ids.size());
@@ -228,7 +244,7 @@ void MemoryEngine::Run(MemoryRequest request, std::uint64_t run_id) {
     snapshot.error_code = kErrorAllocationFailed;
     buffer.reset();
     Publish(snapshot);
-    return;
+    return false;
   }
 
   std::atomic<std::uint32_t> phase{0U};
@@ -297,6 +313,7 @@ void MemoryEngine::Run(MemoryRequest request, std::uint64_t run_id) {
         while (phase.load(std::memory_order_acquire) < 2U) {
           std::this_thread::yield();
         }
+        if (phase.load(std::memory_order_acquire) != 2U) return;
         while (!stop_requested_.load(std::memory_order_acquire) &&
                NowNs() < measure_end_ns.load(std::memory_order_acquire)) {
           run_kernel();
@@ -366,6 +383,29 @@ void MemoryEngine::Run(MemoryRequest request, std::uint64_t run_id) {
     if (since_last_hint >= hint_update_ns) {
       performance_hint.ReportActualDuration(since_last_hint);
       last_hint_report = now;
+    }
+  }
+
+  if (!creation_failed && !stop_requested_.load(std::memory_order_acquire)) {
+    // Read from the unpinned coordinator, not an affinity-pinned worker.
+    // ADPF/warm-up may have made additional CPUs available to this process.
+    Topology refreshed;
+    bool read_ok = false;
+    try { refreshed = topology_reader_(); read_ok = true; }
+    catch (...) { snapshot.topology_unstable = true; }
+    if (read_ok) {
+      auto refreshed_ids = SelectBenchmarkCpus(refreshed, 0U);
+      std::sort(refreshed_ids.begin(), refreshed_ids.end());
+      snapshot.present_cpus = static_cast<std::uint32_t>(refreshed.cpus.size());
+      snapshot.online_cpus = refreshed.online_count;
+      snapshot.allowed_cpus = refreshed.allowed_count;
+      if (refreshed_ids != cpu_ids && attempt < 2U) {
+        phase.store(3U, std::memory_order_release);
+        for (auto &worker : workers) if (worker.joinable()) worker.join();
+        topology = std::move(refreshed);
+        return true;
+      }
+      snapshot.topology_unstable = refreshed_ids != cpu_ids;
     }
   }
 
@@ -448,6 +488,7 @@ void MemoryEngine::Run(MemoryRequest request, std::uint64_t run_id) {
   // module. This is outside the measured worker completion interval.
   buffer.reset();
   Publish(snapshot);
+  return false;
 }
 
 } // namespace benchmark

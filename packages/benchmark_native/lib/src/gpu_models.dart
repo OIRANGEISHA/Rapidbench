@@ -13,9 +13,9 @@ enum GpuBenchmarkTest {
   final String label;
 
   static GpuBenchmarkTest fromNative(int value) => values.firstWhere(
-    (test) => test.nativeId == value,
-    orElse: () => GpuBenchmarkTest.none,
-  );
+        (test) => test.nativeId == value,
+        orElse: () => GpuBenchmarkTest.none,
+      );
 }
 
 enum GpuBenchmarkState {
@@ -42,9 +42,9 @@ enum GpuBenchmarkState {
       this == GpuBenchmarkState.error;
 
   static GpuBenchmarkState fromNative(int value) => values.firstWhere(
-    (state) => state.nativeId == value,
-    orElse: () => GpuBenchmarkState.error,
-  );
+        (state) => state.nativeId == value,
+        orElse: () => GpuBenchmarkState.error,
+      );
 }
 
 enum GpuFp16Mode {
@@ -86,6 +86,8 @@ final class GpuCapabilities {
     required this.timingMode,
     required this.maxStorageBufferRange,
     required this.reason,
+    this.availableTestMask = 0x3e,
+    this.testReasons = const {},
   });
 
   factory GpuCapabilities.fromJson(Map<String, dynamic> json) {
@@ -110,6 +112,12 @@ final class GpuCapabilities {
       reason: available
           ? ''
           : json['reason']?.toString() ?? 'Vulkan Compute Unavailable',
+      availableTestMask: (json['availableTestMask'] as num?)?.toInt() ??
+          (available ? 0x3e : 0),
+      testReasons: {
+        for (final entry in (json['testReasons'] as Map? ?? {}).entries)
+          int.parse(entry.key.toString()): entry.value.toString(),
+      },
     );
   }
 
@@ -124,6 +132,36 @@ final class GpuCapabilities {
   final GpuFp16Mode fp16Mode;
   final GpuTimingMode timingMode;
   final int maxStorageBufferRange;
+  final String reason;
+  final int availableTestMask;
+  final Map<int, String> testReasons;
+
+  bool supports(GpuBenchmarkTest test) =>
+      available &&
+      (test == GpuBenchmarkTest.all
+          ? (availableTestMask & 0x3e) != 0
+          : test != GpuBenchmarkTest.none &&
+              (availableTestMask & (1 << test.nativeId)) != 0);
+}
+
+enum GpuItemState { ready, unavailable, running, completed, stopped, failed }
+
+final class GpuItemDiagnostics {
+  GpuItemDiagnostics.fromJson(Map<String, dynamic> json)
+      : runId = (json['runId'] as num?)?.toInt() ?? 0,
+        state = GpuItemState
+            .values[(json['state'] as num? ?? 0).toInt().clamp(0, 5)],
+        hostSeconds = (json['hostSeconds'] as num?)?.toDouble() ?? 0,
+        gpuObservedSeconds =
+            (json['gpuObservedSeconds'] as num?)?.toDouble() ?? 0,
+        hostBatches = (json['hostBatches'] as num?)?.toInt() ?? 0,
+        timestampBatches = (json['timestampBatches'] as num?)?.toInt() ?? 0,
+        fpAccumulators = (json['fpAccumulators'] as num?)?.toInt() ?? 0,
+        reason = json['reason']?.toString() ?? '';
+
+  final int runId, hostBatches, timestampBatches, fpAccumulators;
+  final GpuItemState state;
+  final double hostSeconds, gpuObservedSeconds;
   final String reason;
 }
 
@@ -153,6 +191,8 @@ final class GpuBenchmarkSnapshot {
     this.dispatchCount = 0,
     this.iterationCount = 64,
     this.lastError = '',
+    this.diagnostics = const {},
+    this.fatalError = false,
   });
 
   final int runId;
@@ -179,13 +219,29 @@ final class GpuBenchmarkSnapshot {
   final int dispatchCount;
   final int iterationCount;
   final String lastError;
+  final Map<int, GpuItemDiagnostics> diagnostics;
+  final bool fatalError;
+
+  String get timingLabel {
+    var host = 0;
+    var gpu = 0;
+    for (final item
+        in diagnostics.values.where((item) => item.runId == runId)) {
+      host += item.hostBatches;
+      gpu += item.timestampBatches;
+    }
+    if (host > 0 && gpu > 0) return 'GPU + HOST FALLBACK';
+    if (host > 0) return 'HOST FALLBACK';
+    if (gpu > 0) return 'GPU TIMESTAMP';
+    return runId == 0 ? 'Not measured' : 'Awaiting samples';
+  }
 
   double valueFor(GpuBenchmarkTest test) => switch (test) {
-    GpuBenchmarkTest.fp32 => fp32Gflops,
-    GpuBenchmarkTest.fp16 => fp16Gflops,
-    GpuBenchmarkTest.int32 => int32Gops,
-    GpuBenchmarkTest.mixed => mixedGwork,
-    GpuBenchmarkTest.memoryBandwidth => memoryBandwidthGbps,
-    _ => 0,
-  };
+        GpuBenchmarkTest.fp32 => fp32Gflops,
+        GpuBenchmarkTest.fp16 => fp16Gflops,
+        GpuBenchmarkTest.int32 => int32Gops,
+        GpuBenchmarkTest.mixed => mixedGwork,
+        GpuBenchmarkTest.memoryBandwidth => memoryBandwidthGbps,
+        _ => 0,
+      };
 }

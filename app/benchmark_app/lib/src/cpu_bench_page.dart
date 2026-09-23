@@ -128,6 +128,8 @@ class _BenchBody extends StatelessWidget {
               text: _nativeErrorMessage(snapshot.errorCode),
               isWarning: true,
             ),
+          if (controller.topology.selectionWarning != null)
+            _Notice(text: controller.topology.selectionWarning!),
           if (snapshot.affinityFailures > 0)
             _Notice(
               text: 'Affinity issue affected ${snapshot.affinityFailures} '
