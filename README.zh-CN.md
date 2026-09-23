@@ -2,7 +2,10 @@
 
 [English](README.md)
 
-当前发布通道：**1.1.0 Beta 6 / Preview 预览版**。
+当前发布通道：**1.1.1 Beta 7 / Preview 预览版**。
+
+参见[兼容性修正及验证范围](docs/compatibility-beta7.md)和
+[发布记录](docs/releases/1.1.1-beta.7.md)。
 
 RapidBench 是一款原生 Android 性能测试工具，用于快速评估设备性能，并集中查看 CPU、GPU 的特性支持情况。它提供时间较短且可重复的 CPU、内存、存储和 Vulkan Compute 测试，同时展示 CPU 拓扑、Arm ISA 和 Vulkan 能力。
 

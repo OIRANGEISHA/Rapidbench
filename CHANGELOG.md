@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+## [1.1.1-beta.7] - 2026-09-23
+
+### Fixed
+
+- Rank CPUs using one consistent evidence source: complete capacity data, otherwise complete maximum-frequency data, otherwise an explicitly unknown fallback. Do not mix missing capacity values with unrelated frequency ranks. Infer distinct performance groups when a constant cluster/policy ID hides different ranks.
+- Label frequency-inferred and unknown automatic single-core choices. Keep automatic Single / all-present-core Multi for CPU application workloads, without adding selectors.
+- Isolate Vulkan pipeline availability by test; fall back to explicitly labelled FP32 emulation when native FP16 pipeline creation fails. Skip unavailable items in All, retain strict numerical validation, and stop globally on device loss/submission failures.
+- Add per-test GPU state and host/timestamp batch diagnostics. Aggregate timing no longer hides earlier host-fallback batches. GPU workload, operation counting, workgroup size and timing acceptance thresholds are unchanged (`gpu-throughput-v2`).
+- Recheck available CPUs after Memory warm-up with at most two re-preparations, then freeze workers before measurement. Report restricted/unstable CPU availability; retain read/write kernels and bidirectional system `memcpy()` accounting.
+- Fix Peak falling below the final CPU score on short or scheduler-delayed runs with too few score windows: use the measured whole-run throughput as a peak fallback, consistent with the existing final-score fallback. The main scoring formula is unchanged.
+- CPU 排名统一使用完整 capacity、完整最高频率或明确标记的未知回退，不再混用缺失数据；常量簇/策略编号掩盖性能差异时推断性能分组，并提示自动选核的依据与不确定性。
+- GPU 按项目隔离管线不可用，原生 FP16 失败时明确标注 FP32 模拟；保留数值校验与全局故障停止，增加逐项状态和计时回退诊断，不修改工作负载、操作计数或计时阈值。
+- 内存预热后有界重检核心，测量前固定 worker；显示系统限制或核心可用性变化，不修改读写/复制算法和统计口径。
+- 修复极短或调度延迟测试中 Peak 偶尔低于最终分数的边界问题，不修改 CPU 主分数公式。
+
+### Changed
+
+- Set Android version to `1.1.1-beta.7` / `4021`. Existing C ABI structures, storage routes, signing and dependencies remain unchanged; diagnostics APIs are additive.
+- 跨品牌场景采用合成拓扑与故障注入验证，不等同于其他机型实测；验证范围见 `docs/compatibility-beta7.md`，发布记录见 `docs/releases/1.1.1-beta.7.md`。
+
 ## [1.1.0-beta.6] - 2026-09-12
 
 ### Added
@@ -113,7 +133,8 @@ Real-device validation was completed on a PJZ110 with Snapdragon 8 Elite and Adr
 
 本版本已在搭载骁龙 8 Elite 和 Adreno 830 的 PJZ110 上完成真机验证。由于暂时没有对应设备，玄戒 O1、Exynos 2600、骁龙 865、麒麟 990 和麒麟 980 仅完成了拓扑及计时路径模拟验证，没有将其描述为真机实测。
 
-[Unreleased]: https://github.com/OIRANGEISHA/Rapidbench/compare/v1.1.0-beta.6...HEAD
+[Unreleased]: https://github.com/OIRANGEISHA/Rapidbench/compare/v1.1.1-beta.7...HEAD
+[1.1.1-beta.7]: https://github.com/OIRANGEISHA/Rapidbench/compare/v1.1.0-beta.6...v1.1.1-beta.7
 [1.1.0-beta.6]: https://github.com/OIRANGEISHA/Rapidbench/compare/v1.0.4-beta.5...v1.1.0-beta.6
 [1.0.4-beta.5]: https://github.com/OIRANGEISHA/Rapidbench/compare/v1.0.3-beta.4...v1.0.4-beta.5
 [1.0.3-beta.4]: https://github.com/OIRANGEISHA/Rapidbench/compare/v1.0.2-beta.3...v1.0.3-beta.4

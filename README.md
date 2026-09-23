@@ -2,7 +2,10 @@
 
 [简体中文](README.zh-CN.md)
 
-Current release channel: **1.1.0 Beta 6 / Preview**.
+Current release channel: **1.1.1 Beta 7 / Preview**.
+
+See the [compatibility changes and verification scope](docs/compatibility-beta7.md)
+and [release record](docs/releases/1.1.1-beta.7.md).
 
 RapidBench is a native Android benchmark for a quick assessment of device performance and a compact overview of CPU and GPU capability support. It combines short, repeatable CPU, memory, storage, and Vulkan compute tests with hardware topology, Arm ISA, and Vulkan feature reporting.
 
